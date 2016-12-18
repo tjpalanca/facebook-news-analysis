@@ -47,7 +47,7 @@ getAppAccessToken <- function(fb_app_id, fb_app_secret) {
     str_replace("^access_token=", "")
 }
 
-makeFBGraphAPICall <- function(node, query = NULL, version = "v2.8", 
+makeFBGraphAPICall <- function(node = "", query = NULL, version = "v2.8", 
                                access_token = fb.tkn) {
   # Function to generate a generic Facebook Graph API Call.
   #
@@ -66,7 +66,6 @@ makeFBGraphAPICall <- function(node, query = NULL, version = "v2.8",
   )
   
 }
-
 
 getFBPagePosts <- function(page_name, n_posts = Inf, date_limit = -Inf,
                            access_token = fb.tkn) {
@@ -107,7 +106,8 @@ getFBPagePosts <- function(page_name, n_posts = Inf, date_limit = -Inf,
   # Initialize content
   makeFBGraphAPICall(
     node         = paste0(page_name, "/posts"),
-    query        = list(fields = "message,created_time,id,story,attachments"),
+    query        = 
+      list(fields = "message,created_time,id,story,attachments", limit = 100),
     access_token = access_token
   ) %>% 
     content(as = "text") %>% 
@@ -165,9 +165,11 @@ getFBPagePosts <- function(page_name, n_posts = Inf, date_limit = -Inf,
     ) %>% 
       mutate(
         article_url = coalesce(url, target.url),
-        created_time = convertTimeStamp(created_time)
+        created_time = convertTimeStamp(created_time),
+        page_name = page_name
       ) %>% 
       select(
+        page_name,
         post_id = id,
         post_timestamp_utc = created_time,
         post_message = message,
@@ -184,6 +186,153 @@ getFBPagePosts <- function(page_name, n_posts = Inf, date_limit = -Inf,
   )
 }
 
+getFBComments <- function(object_ids, access_token = fb.tkn) {
+  # For a vector of Facebook Objcet IDs object_ids, get all the comments
+  # associated with these objects and return a clean dataframe of 
+  # results.
+  #
+  # Args:
+  #   object_ids: vector of Facebook Object IDs
+  #   access_token: access token (not needed if fb.tkn is initialized)
+  
+  map_df(
+    # For each object_id
+    object_ids,
+    function(object_id) {
+      # Get comments associated with object
+      makeFBGraphAPICall(
+        node = paste0(object_id, "/comments"),
+        query = list(limit = 10000)
+      ) %>% 
+        content(as = "text") %>% 
+        fromJSON(flatten = TRUE) -> fbobject.cnt
+      fbobject.cnt$data -> object_comments.dt
+      cat(nrow(object_comments.dt), " comments retrieved.\n")
+      
+      # Return NULL if no comments
+      if (length(object_comments.dt) == 0) return(NULL)
+      
+      # Grab until no more next page
+      while (!is.null(fbobject.cnt$paging$`next`)) {
+        GET(fbobject.cnt$paging$`next`) %>% 
+          content(as = "text") %>% 
+          fromJSON(flatten = TRUE) ->
+          fbobject.cnt
+        object_comments.dt %<>% rbind(fbobject.cnt$data)
+        cat(nrow(object_comments.dt), " comments retrieved.\n")
+      }
+      
+      # Add column for object id and return
+      object_comments.dt$object_id <- object_id
+      object_comments.dt 
+    }
+  ) %>% 
+    mutate(
+      comment_timestamp_utc = convertTimeStamp(created_time)
+    ) %>% 
+    select(
+      object_id,
+      comment_id = id,
+      comment_timestamp_utc,
+      comment_message = message,
+      commenter_name = from.name,
+      commenter_id = from.id
+    )
+}
+
+getFBReactions <- function(object_ids, access_token = fb.tkn) {
+  # For a vector of Facebook Object IDs object_ids, get all the reactions
+  # associated with these objects and return a clean dataframe of 
+  # results.
+  #
+  # Args:
+  #   object_ids: vector of Facebook Object IDs
+  #   access_token: access token (not needed if fb.tkn is initialized)
+  
+  map_df(
+    # For each object_id
+    object_ids,
+    function(object_id) {
+      # Get reactions associated with object
+      makeFBGraphAPICall(
+        node = paste0(object_id, "/reactions"),
+        query = list(limit = 10000)
+      ) %>% 
+        content(as = "text") %>% 
+        fromJSON(flatten = TRUE) -> fbobject.cnt
+      fbobject.cnt$data -> object_comments.dt
+      cat(nrow(object_comments.dt), " reactions retrieved.\n")
+      
+      # Return NULL if no comments
+      if (length(object_comments.dt) == 0) return(NULL)
+      
+      # Grab until no more next page
+      while (!is.null(fbobject.cnt$paging$`next`)) {
+        GET(fbobject.cnt$paging$`next`) %>% 
+          content(as = "text") %>% 
+          fromJSON(flatten = TRUE) ->
+          fbobject.cnt
+        object_comments.dt %<>% rbind(fbobject.cnt$data)
+        cat(nrow(object_comments.dt), " reactions retrieved.\n")
+      }
+      
+      # Add column for object id and return
+      object_comments.dt$object_id <- object_id
+      object_comments.dt 
+    }
+  ) 
+}
+
+getFBPage <- function(page_names, n_posts, date_limit, access_token = fb.tkn) {
+  # Get relevant posts, comments, reactions, comment replies, and 
+  # comment reactions associated with Facebook page(s).
+  #
+  # Args:
+  #   page_names:   vector of Facebook page name(s) and/or ID(s)
+  #   n_posts:      limit to number of posts to scrape
+  #   date_limit:   limit to earliest date to scrape 
+  #   access_token: App access token (no need if fb.tkn is initialized)
+  # 
+  # Returns:
+  #   A list per page containing the page posts, comments, reactions,
+  #   comment replies, and comment reactions in that order.
+  
+  map(
+    page_names,
+    function(page_name) {
+      getFBPagePosts(
+        page_name = page_name,
+        n_posts = n_posts,
+        date_limit = date_limit
+      ) -> posts.dt
+      
+      getFBComments(
+        object_ids = posts.dt$post_id
+      ) -> posts_comments.dt
+      
+      getFBReactions(
+        object_ids = posts.dt$post_id
+      ) -> posts_reactions.dt
+      
+      getFBComments(
+        object_ids = posts_comments.dt$comment_id
+      ) -> posts_comments_replies.dt
+      
+      getFBReactions(
+        object_ids = posts_comments.dt$comment_id[1:5]
+      ) -> comments_reactions.dt
+      
+      list(
+        posts                    = posts.dt,
+        posts_comments           = posts_comments.dt,
+        posts_reactions          = posts_reactions.dt,
+        posts_comments_replies   = posts_comments_replies.dt,
+        posts_comments_reactions = posts_comments_reactions.dt
+      )
+    }
+  )
+}
+
 # Scraping ----------------------------------------------------------------
 
 # Get app access token
@@ -193,9 +342,4 @@ getFBPagePosts <- function(page_name, n_posts = Inf, date_limit = -Inf,
 load("bin/fb_auth.rda") 
 
 fb.tkn <- getAppAccessToken(fb_app_id, fb_app_secret)
-
-getFBPagePosts(
-  page_name = "rapplerdotcom",
-  date_limit = as.POSIXct("2016-12-17")
-) -> posts.dt
 
