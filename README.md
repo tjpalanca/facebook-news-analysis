@@ -1,5 +1,5 @@
-# Facebook Fake Account Identifier
-**A study into the identification of fake Facebook accounts commenting on news articles**
+# Facebook News Analysis
+**A study into the the landscape of Philippines news on Facebook**
 
 ***This is a work in progress.***
 
@@ -11,7 +11,7 @@ Sumary
 
 ### Licensing
 
-For details on the license and permission requests, please see the [license file](https://github.com/tjpalanca/facebook-fake-accounts/blob/master/LICENSE.md).
+For details on the license and permission requests, please see the [license file](https://github.com/tjpalanca/facebook-news-analysis/blob/master/LICENSE.md).
 
 ### Author Information
 
