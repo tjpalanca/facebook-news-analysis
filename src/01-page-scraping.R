@@ -33,7 +33,7 @@ getAppAccessToken <- function(fb_app_id, fb_app_secret) {
   #   fb_app_secret:  character scalar containing the Fabebook App Secret
   #
   # Returns:
-  #   App Access Token (do not reveal)
+  #   App Access Token in fb.tkn (do not assign)
   
   GET(
     url   = "https://graph.facebook.com/oauth/access_token",
@@ -44,12 +44,13 @@ getAppAccessToken <- function(fb_app_id, fb_app_secret) {
     )
   ) %>% 
     content() %>% 
-    str_replace("^access_token=", "")
+    str_replace("^access_token=", "") ->> fb.tkn 
 }
 
-makeFBGraphAPICall <- function(node = "", query = NULL, version = "v2.8", 
-                               access_token = fb.tkn) {
-  # Function to generate a generic Facebook Graph API Call.
+callFBGraphAPI <- function(node = "", query = NULL, version = "v2.8", 
+                           access_token = fb.tkn) {
+  # Function to generate a generic Facebook Graph API Call. Uses
+  # API v2.8 by default.
   #
   # Args:
   #   node:         the node to be pinged
@@ -63,275 +64,157 @@ makeFBGraphAPICall <- function(node = "", query = NULL, version = "v2.8",
     url   = paste0("https://graph.facebook.com/", version, "/"),
     path  = node,
     query = append(list(access_token = access_token), query)
+  ) %T>% {
+    # Check for API call errors
+    if(!is.null(.$error)) stop ("API Call Error")
+  } 
+  
+}
+
+expandPaging <- function(object_ids, object_data, object_next) {
+  # If API results are incomplete due to paging, completes the data
+  # and cleans it up into a tidy data frame
+  #
+  # Args:
+  #   object_ids:  list of IDs to be assigned to each batch
+  #   object_data: list of data frames that comprise initial data
+  #   object_next: list of links returned as the next API call
+  # 
+  # Returns:
+  #   list of bindable dataframes with complete data for all pages 
+  
+  # Return NULL if no reasonable input
+  if (is.null(object_ids) | is.null(object_data)) return(NULL)
+  
+  # Replace next with NA if no next
+  if (is.null(object_next)) object_next = rep(NA, length(object_ids))
+  
+  pmap(
+    list(
+      object_id   = object_ids,
+      object_data = object_data,
+      object_next = object_next
+    ),
+    function(object_id, object_data, object_next) {
+      
+      cat(object_id, "\n")
+      
+      data <- object_data
+      
+      while(ifelse(is.null(object_next), FALSE, 
+                   ifelse(is.na(object_next), FALSE, TRUE))) {
+        GET(object_next) %>% 
+          content(as = "text") %>% 
+          fromJSON() ->
+          content
+        
+        if(length(content$data) > 0) {
+          rbind.pages(list(data, content$data)) -> data
+        }
+        
+        object_next <- content$paging$`next`
+        
+      }
+      
+      data$object_id <- object_id
+      data
+    }
   )
   
 }
 
-getFBPagePosts <- function(page_name, n_posts = Inf, date_limit = -Inf,
-                           access_token = fb.tkn) {
-  # Scrapes posts from a Facebook Page, subject to a limit on either/both
-  # number of posts and or the date (in local system time).
-  #
-  # Args:
-  #   page_name:   the username of the page to be scraped
-  #   n_posts:     limit on the number of posts to be taken
-  #   date_limit:  limit on the minimum date to be scraped
-  #   access_token: access_token (ignore if fb.tkn is already initialized)
-  #
-  # Returns:
-  #   data frame containing information on the posts from the Facebook 
-  #   page that satisfy the limits
+getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf, 
+                      access_token = fb.tkn, posts_per_page = 5) {
   
   # Raise exception if no limit is specified
-  if (is.infinite(n_posts) & is.infinite(date_limit)) {
+  if (is.infinite(limit_posts) & is.infinite(limit_timestamp)) {
     stop("No post or date limit specified!")
   }
   
-  # Function: Collection Status
-  showCollectionStatus <- function(dt) {
-    # Shows the collection status given a dataframe with scrape
-    cat(
-      paste0(
-        nrow(dt), 
-        " posts now collected from ",
-        format(
-          convertTimeStamp(min(dt$created_time)), 
-          format = "%Y-%m-%d %H:%M:%S"
-        ), 
-        "\n"
-      )
-    )
-  }
+  # Raise exception if no page_name specific
+  if (is.null(page_name)) stop("No page name specified!")
   
-  # Initialize content
-  makeFBGraphAPICall(
-    node         = paste0(page_name, "/posts"),
-    query        = 
-      list(fields = "message,created_time,id,story,attachments", limit = 100),
-    access_token = access_token
+  # Make initial API call
+  
+  callFBGraphAPI(
+    node = paste0(page_name, "/posts"),
+    query = list(
+      fields = "
+        id, created_time, message, story, 
+        attachments{
+          title, description, type, target{id, url}, media{image{src}}
+        },
+        comments.limit(10){
+          id, created_time, message, from{id, name},
+          comments.limit(10){
+            id, created_time, message, from{id, name},
+            likes.limit(10)
+          },
+          likes.limit(10){
+            id, name
+          },
+          attachments.limit(10){
+            title, description, type, target{id, url}, media{image{src}}
+          }
+        },
+        reactions.limit(10){id, name, type}
+        ",
+      limit = posts_per_page
+    )
   ) %>% 
     content(as = "text") %>% 
-    fromJSON(flatten = TRUE) ->
+    fromJSON() -> 
     fbpage.cnt
-  cat(paste0("Grabbed ", nrow(fbpage.cnt$data), " posts... "))
   
-  posts.dt <- fbpage.cnt$data %>% remove_rownames()
-  showCollectionStatus(posts.dt)
-    
-  # Repeat until n_posts has been reached and next page still exists
-  while (nrow(posts.dt) < n_posts & 
-         min(convertTimeStamp(posts.dt$created_time)) > date_limit &
+  # Extract data and limit comparison data
+  fbposts.ls  <- fbpage.cnt$data
+  num_posts   <- nrow(fbposts.ls)
+  min_created <- min(convertTimeStamp(fbposts.ls$created_time))
+  cat(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S"), "\n")
+  
+  # Repeat while limit_posts or limit_timestamp has not been reached and 
+  # next page still exists
+  while (num_posts   < limit_posts & 
+         min_created > limit_timestamp &
          !is.null(fbpage.cnt$paging$`next`)) {
     
     # Grab new content
     GET(fbpage.cnt$paging$`next`) %>% 
       content(as = "text") %>% 
-      fromJSON(flatten = TRUE) ->
+      fromJSON() ->
       fbpage.cnt
-    cat(paste0("Grabbed ", nrow(fbpage.cnt$data), " posts... "))
     
-    # Append posts
-    posts.dt %>% bind_rows(fbpage.cnt$data %>% remove_rownames()) -> posts.dt
-    showCollectionStatus(posts.dt)
+    # Bin new content
+    rbind.pages(pages = list(fbposts.ls, fbpage.cnt$data)) -> fbposts.ls
+    
+    # Recompute limits and report
+    num_posts   <- nrow(fbposts.ls)
+    min_created <- min(convertTimeStamp(fbposts.ls$created_time))
+    cat(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S"), "\n")
+    
   }
   
-  # Limit to n_posts and date_limit if applicable
-  if (!is.infinite(n_posts)) {
-    posts.dt %<>% slice(1:n_posts) 
+  # Limit to limit_posts if applicable
+  if (!is.infinite(limit_posts)) {
+    fbposts.ls[
+      1:limit_posts, 
+    ] -> fbposts.ls
   }
-  # Limit to date limit
-  if (!is.infinite(date_limit)) {
-    posts.dt %<>% 
-      slice(which(convertTimeStamp(posts.dt$created_time) > date_limit))
+  # Limit to limit_timestamp if applicable
+  if (!is.infinite(limit_timestamp)) {
+    fbposts.ls[
+      which(convertTimeStamp(fbposts.ls$created_time) > limit_timestamp), 
+      ] -> fbposts.ls
   }
   
-  # Flatten out attachments data
-  posts.dt$attachments.data %>% 
-    map_df(
-      function(x) {
-        if (length(x) == 0) {
-          return(data_frame(description = NA))
-        } else {
-          return(x[1,])
-        }
-      }
-    ) -> posts_attachments.dt
-  
-  # Return clean dataset with renamed columns
-  return(
-    cbind(
-      posts.dt %>% select(-attachments.data),
-      posts_attachments.dt
-    ) %>% 
-      mutate(
-        article_url = coalesce(url, target.url),
-        created_time = convertTimeStamp(created_time),
-        page_name = page_name
-      ) %>% 
-      select(
-        page_name,
-        post_id = id,
-        post_timestamp_utc = created_time,
-        post_message = message,
-        post_story = story,
-        article_id = target.id,
-        article_title = title,
-        article_description = description,
-        article_type = type,
-        article_url,
-        article_media_height = media.image.height,
-        article_media_width = media.image.width,
-        article_media_url = media.image.src
-      ) 
-  )
+  # Assign page name and return
+  fbposts.ls$page_name <- rep(page_name, length(fbposts.ls$id))
+  fbposts.ls
+
 }
 
-getFBComments <- function(object_ids, access_token = fb.tkn) {
-  # For a vector of Facebook Objcet IDs object_ids, get all the comments
-  # associated with these objects and return a clean dataframe of 
-  # results.
-  #
-  # Args:
-  #   object_ids: vector of Facebook Object IDs
-  #   access_token: access token (not needed if fb.tkn is initialized)
-  
-  map_df(
-    # For each object_id
-    object_ids,
-    function(object_id) {
-      # Get comments associated with object
-      makeFBGraphAPICall(
-        node = paste0(object_id, "/comments"),
-        query = list(limit = 10000)
-      ) %>% 
-        content(as = "text") %>% 
-        fromJSON(flatten = TRUE) -> fbobject.cnt
-      fbobject.cnt$data -> object_comments.dt
-      cat(nrow(object_comments.dt), " comments retrieved.\n")
-      
-      # Return NULL if no comments
-      if (length(object_comments.dt) == 0) return(NULL)
-      
-      # Grab until no more next page
-      while (!is.null(fbobject.cnt$paging$`next`)) {
-        GET(fbobject.cnt$paging$`next`) %>% 
-          content(as = "text") %>% 
-          fromJSON(flatten = TRUE) ->
-          fbobject.cnt
-        object_comments.dt %<>% rbind(fbobject.cnt$data)
-        cat(nrow(object_comments.dt), " comments retrieved.\n")
-      }
-      
-      # Add column for object id and return
-      object_comments.dt$object_id <- object_id
-      object_comments.dt 
-    }
-  ) %>% 
-    mutate(
-      comment_timestamp_utc = convertTimeStamp(created_time)
-    ) %>% 
-    select(
-      object_id,
-      comment_id = id,
-      comment_timestamp_utc,
-      comment_message = message,
-      commenter_name = from.name,
-      commenter_id = from.id
-    )
-}
 
-getFBReactions <- function(object_ids, access_token = fb.tkn) {
-  # For a vector of Facebook Object IDs object_ids, get all the reactions
-  # associated with these objects and return a clean dataframe of 
-  # results.
-  #
-  # Args:
-  #   object_ids: vector of Facebook Object IDs
-  #   access_token: access token (not needed if fb.tkn is initialized)
-  
-  map_df(
-    # For each object_id
-    object_ids,
-    function(object_id) {
-      # Get reactions associated with object
-      makeFBGraphAPICall(
-        node = paste0(object_id, "/reactions"),
-        query = list(limit = 10000)
-      ) %>% 
-        content(as = "text") %>% 
-        fromJSON(flatten = TRUE) -> fbobject.cnt
-      fbobject.cnt$data -> object_comments.dt
-      cat(nrow(object_comments.dt), " reactions retrieved.\n")
-      
-      # Return NULL if no comments
-      if (length(object_comments.dt) == 0) return(NULL)
-      
-      # Grab until no more next page
-      while (!is.null(fbobject.cnt$paging$`next`)) {
-        GET(fbobject.cnt$paging$`next`) %>% 
-          content(as = "text") %>% 
-          fromJSON(flatten = TRUE) ->
-          fbobject.cnt
-        object_comments.dt %<>% rbind(fbobject.cnt$data)
-        cat(nrow(object_comments.dt), " reactions retrieved.\n")
-      }
-      
-      # Add column for object id and return
-      object_comments.dt$object_id <- object_id
-      object_comments.dt 
-    }
-  ) 
-}
 
-getFBPage <- function(page_names, n_posts, date_limit, access_token = fb.tkn) {
-  # Get relevant posts, comments, reactions, comment replies, and 
-  # comment reactions associated with Facebook page(s).
-  #
-  # Args:
-  #   page_names:   vector of Facebook page name(s) and/or ID(s)
-  #   n_posts:      limit to number of posts to scrape
-  #   date_limit:   limit to earliest date to scrape 
-  #   access_token: App access token (no need if fb.tkn is initialized)
-  # 
-  # Returns:
-  #   A list per page containing the page posts, comments, reactions,
-  #   comment replies, and comment reactions in that order.
-  
-  map(
-    page_names,
-    function(page_name) {
-      getFBPagePosts(
-        page_name = page_name,
-        n_posts = n_posts,
-        date_limit = date_limit
-      ) -> posts.dt
-      
-      getFBComments(
-        object_ids = posts.dt$post_id
-      ) -> posts_comments.dt
-      
-      getFBReactions(
-        object_ids = posts.dt$post_id
-      ) -> posts_reactions.dt
-      
-      getFBComments(
-        object_ids = posts_comments.dt$comment_id
-      ) -> posts_comments_replies.dt
-      
-      getFBReactions(
-        object_ids = posts_comments.dt$comment_id[1:5]
-      ) -> comments_reactions.dt
-      
-      list(
-        posts                    = posts.dt,
-        posts_comments           = posts_comments.dt,
-        posts_reactions          = posts_reactions.dt,
-        posts_comments_replies   = posts_comments_replies.dt,
-        posts_comments_reactions = posts_comments_reactions.dt
-      )
-    }
-  )
-}
 
 # Scraping ----------------------------------------------------------------
 
@@ -340,6 +223,188 @@ getFBPage <- function(page_names, n_posts, date_limit, access_token = fb.tkn) {
 # NOTE: Ensure you have two character scalars fb_app_id and fb_app_secret
 # in this rda file. You need to create your own credentials
 load("bin/fb_auth.rda") 
+getAppAccessToken(fb_app_id, fb_app_secret)
 
-fb.tkn <- getAppAccessToken(fb_app_id, fb_app_secret)
+# Get posts
+getFBPage(
+  page_name      = "rapplerdotcom",
+  limit_posts    = 20,
+  posts_per_page = 10,
+  access_token   = fb.tkn
+) -> posts.ls
 
+# Get post data
+posts.ls %>% 
+  select(-reactions, -attachments, -comments) %>% 
+  mutate(
+    post_timestamp_utc = convertTimeStamp(created_time)
+  ) %>% 
+  select(
+    page_name    = page_name,
+    post_id      = id, 
+    post_message = message, 
+    post_timestamp_utc,
+    post_story   = story
+  ) -> posts.dt
+
+# Get post attachments data 
+posts.ls %>% 
+  select(id, attachments) %>% {
+    expandPaging(
+      object_ids  = .$id,
+      object_data = .$attachments$data,
+      object_next = .$attachments$paging$`next`
+    ) 
+  } %>% 
+  map_df(
+    function(attachments) {
+      data_frame(
+        object_id              = attachments$object_id,
+        attachment_title       = attachments$title,
+        attachment_type        = attachments$type,
+        attachment_target_url  = attachments$target$url,
+        attachment_media_url   = attachments$media$image$src
+      )
+    }
+  )->
+  posts_attachments.dt
+
+# Get post reactions data
+posts.ls %>% 
+  select(id, reactions) %>% {
+    expandPaging(
+      object_ids  = .$id,
+      object_data = .$reactions$data,
+      object_next = .$reactions$paging$`next`
+    ) %>% 
+      bind_rows() %>% 
+      select(
+        object_id     = object_id,
+        reactor_id    = id,
+        reactor_name  = name,
+        reaction_type = type
+      )
+  } ->
+  posts_reactions.dt
+
+# Get post comments raw data
+posts.ls %>% 
+  select(id, comments) %>% {
+    expandPaging(
+      object_ids  = .$id,
+      object_data = .$comments$data,
+      object_next = .$comments$paging$`next`
+    ) 
+  } ->
+  posts_comments.ls
+
+# Get post comments data
+posts_comments.ls %>% 
+  map_df(
+    function(comments) {
+      if (is.null(comments$id)) return(NULL)
+      data_frame(
+        object_id             = comments$object_id,
+        comment_id            = comments$id,
+        comment_timestamp_utc = convertTimeStamp(comments$created_time),
+        comment_message       = comments$message,
+        commenter_name        = comments$from$name,
+        commenter_id          = comments$from$id
+      ) 
+    }
+  ) -> posts_comments.dt
+
+# Get post comments likes data
+posts_comments.ls %>% 
+  map(
+    function(comments) {
+      list(
+        id    = comments$id,
+        likes = comments$likes
+      )
+    }
+  ) %>% 
+  map(
+    function(comments) {
+      expandPaging(
+        object_ids  = comments$id,
+        object_data = comments$likes$data,
+        object_next = comments$likes$paging$`next`
+      ) 
+    }
+  ) %>% 
+  flatten() %>% 
+  bind_rows() %>% 
+  select(
+    object_id   = object_id,
+    liker_id    = id,
+    liker_name  = name
+  ) ->
+  posts_comments_likes.dt
+
+# Get post comment replies raw data
+posts_comments.ls %>% 
+  map(
+    function(comments) {
+      list(
+        id       = comments$id,
+        comments = comments$comments
+      )
+    }
+  ) %>% 
+  map(
+    function(comments) {
+      expandPaging(
+        object_ids  = comments$id,
+        object_data = comments$comments$data,
+        object_next = comments$comments$paging$`next`
+      ) 
+    }
+  ) %>% 
+  flatten() ->
+  posts_comments_comments.ls
+
+# Get post comment replies data
+posts_comments_comments.ls %>% 
+  map_df(
+    function(comments) {
+      if (is.null(comments$id)) return(NULL)
+      data_frame(
+        object_id             = comments$object_id,
+        comment_id            = comments$id,
+        comment_timestamp_utc = convertTimeStamp(comments$created_time),
+        comment_message       = comments$message,
+        commenter_name        = comments$from$name,
+        commenter_id          = comments$from$id
+      ) 
+    }
+  ) -> posts_comments_comments.dt
+
+# Get post comment replies reactions data
+posts_comments_comments.ls %>% 
+  map(
+    function(comments) {
+      list(
+        id    = comments$id,
+        likes = comments$likes
+      )
+    }
+  ) %>% 
+  map(
+    function(comments) {
+      expandPaging(
+        object_ids  = comments$id,
+        object_data = comments$likes$data,
+        object_next = comments$likes$paging$`next`
+      ) 
+    }
+  ) %>% 
+  flatten() %>% 
+  bind_rows() %>% 
+  select(
+    object_id   = object_id,
+    liker_id    = id,
+    liker_name  = name
+  ) ->
+  posts_comments_comments_likes.dt
+  
