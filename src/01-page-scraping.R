@@ -124,7 +124,18 @@ expandPaging <- function(object_ids, object_data, object_next) {
 }
 
 getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf, 
-                      access_token = fb.tkn, posts_per_page = 5) {
+                      posts_per_page = 5, access_token = fb.tkn) {
+  # Take complete posts data from a Facebook page
+  #
+  # Args:
+  #   page_name:       username or page_id of the page to be scraped
+  #   limit_posts:     maximum number of posts to be scraped
+  #   limit_timestamp: earliest timestamp of posts to be scraped
+  #   posts_per_page:  number of posts per call (reduce if failing)
+  #   access_token:    app access token (not needed if fb.tkn initialized)
+  #
+  # Returns:
+  #   A list of post data
   
   # Raise exception if no limit is specified
   if (is.infinite(limit_posts) & is.infinite(limit_timestamp)) {
@@ -144,20 +155,20 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
         attachments{
           title, description, type, target{id, url}, media{image{src}}
         },
-        comments.limit(10){
+        comments.limit(1000){
           id, created_time, message, from{id, name},
-          comments.limit(10){
+          comments.limit(1000){
             id, created_time, message, from{id, name},
-            likes.limit(10)
+            likes.limit(1000)
           },
-          likes.limit(10){
+          likes.limit(1000){
             id, name
           },
-          attachments.limit(10){
+          attachments.limit(1000){
             title, description, type, target{id, url}, media{image{src}}
           }
         },
-        reactions.limit(10){id, name, type}
+        reactions.limit(1000){id, name, type}
         ",
       limit = posts_per_page
     )
@@ -213,8 +224,209 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
 
 }
 
-
-
+tidyFBPageData <- function(posts, access_token = fb.tkn) {
+  # Take a list of post data and translate into tidy data frames
+  # 
+  # Args:
+  #   posts:        list of post data generated from `getFBPage`
+  #   access_token: Facebook app access token (not needed if fb.tkn exists)
+  #
+  # Returns:
+  #   List of 7 dataframes:
+  #     posts:             posts data
+  #     posts_reactions:   reactions to top-level posts
+  #     posts_attachments: data of articles/links/media attached to post
+  #     posts_comments:    comments on posts
+  #     posts_comments_likes:    likes on comments on posts
+  #     posts_comments_comments: comment replies
+  #     posts_comments_comments_likes: likes on comment replies
+  
+  # Get post data
+  posts.ls %>% 
+    select(-reactions, -attachments, -comments) %>% 
+    mutate(
+      post_timestamp_utc = convertTimeStamp(created_time)
+    ) %>% 
+    select(
+      page_name    = page_name,
+      post_id      = id, 
+      post_message = message, 
+      post_timestamp_utc,
+      post_story   = story
+    ) -> posts.dt
+  
+  # Get post attachments data 
+  posts.ls %>% 
+    select(id, attachments) %>% {
+      expandPaging(
+        object_ids  = .$id,
+        object_data = .$attachments$data,
+        object_next = .$attachments$paging$`next`
+      ) 
+    } %>% 
+    map_df(
+      function(attachments) {
+        data_frame(
+          object_id              = attachments$object_id,
+          attachment_title       = attachments$title,
+          attachment_type        = attachments$type,
+          attachment_target_url  = attachments$target$url,
+          attachment_media_url   = attachments$media$image$src
+        )
+      }
+    )->
+    posts_attachments.dt
+  
+  # Get post reactions data
+  posts.ls %>% 
+    select(id, reactions) %>% {
+      expandPaging(
+        object_ids  = .$id,
+        object_data = .$reactions$data,
+        object_next = .$reactions$paging$`next`
+      ) %>% 
+        bind_rows() %>% 
+        select(
+          object_id     = object_id,
+          reactor_id    = id,
+          reactor_name  = name,
+          reaction_type = type
+        )
+    } ->
+    posts_reactions.dt
+  
+  # Get post comments raw data
+  posts.ls %>% 
+    select(id, comments) %>% {
+      expandPaging(
+        object_ids  = .$id,
+        object_data = .$comments$data,
+        object_next = .$comments$paging$`next`
+      ) 
+    } ->
+    posts_comments.ls
+  
+  # Get post comments data
+  posts_comments.ls %>% 
+    map_df(
+      function(comments) {
+        if (is.null(comments$id)) return(NULL)
+        data_frame(
+          object_id             = comments$object_id,
+          comment_id            = comments$id,
+          comment_timestamp_utc = convertTimeStamp(comments$created_time),
+          comment_message       = comments$message,
+          commenter_name        = comments$from$name,
+          commenter_id          = comments$from$id
+        ) 
+      }
+    ) -> posts_comments.dt
+  
+  # Get post comments likes data
+  posts_comments.ls %>% 
+    map(
+      function(comments) {
+        list(
+          id    = comments$id,
+          likes = comments$likes
+        )
+      }
+    ) %>% 
+    map(
+      function(comments) {
+        expandPaging(
+          object_ids  = comments$id,
+          object_data = comments$likes$data,
+          object_next = comments$likes$paging$`next`
+        ) 
+      }
+    ) %>% 
+    flatten() %>% 
+    bind_rows() %>% 
+    select(
+      object_id   = object_id,
+      liker_id    = id,
+      liker_name  = name
+    ) ->
+    posts_comments_likes.dt
+  
+  # Get post comment replies raw data
+  posts_comments.ls %>% 
+    map(
+      function(comments) {
+        list(
+          id       = comments$id,
+          comments = comments$comments
+        )
+      }
+    ) %>% 
+    map(
+      function(comments) {
+        expandPaging(
+          object_ids  = comments$id,
+          object_data = comments$comments$data,
+          object_next = comments$comments$paging$`next`
+        ) 
+      }
+    ) %>% 
+    flatten() ->
+    posts_comments_comments.ls
+  
+  # Get post comment replies data
+  posts_comments_comments.ls %>% 
+    map_df(
+      function(comments) {
+        if (is.null(comments$id)) return(NULL)
+        data_frame(
+          object_id             = comments$object_id,
+          comment_id            = comments$id,
+          comment_timestamp_utc = convertTimeStamp(comments$created_time),
+          comment_message       = comments$message,
+          commenter_name        = comments$from$name,
+          commenter_id          = comments$from$id
+        ) 
+      }
+    ) -> posts_comments_comments.dt
+  
+  # Get post comment replies reactions data
+  posts_comments_comments.ls %>% 
+    map(
+      function(comments) {
+        list(
+          id    = comments$id,
+          likes = comments$likes
+        )
+      }
+    ) %>% 
+    map(
+      function(comments) {
+        expandPaging(
+          object_ids  = comments$id,
+          object_data = comments$likes$data,
+          object_next = comments$likes$paging$`next`
+        ) 
+      }
+    ) %>% 
+    flatten() %>% 
+    bind_rows() %>% 
+    select(
+      object_id   = object_id,
+      liker_id    = id,
+      liker_name  = name
+    ) ->
+    posts_comments_comments_likes.dt
+  
+  list(
+    posts                         = posts.dt,
+    posts_attachments             = posts_attachments.dt,
+    posts_reactions               = posts_reactions.dt,
+    posts_comments                = posts_comments.dt,
+    posts_comments_likes          = posts_comments_likes.dt,
+    posts_comments_comments       = posts_comments_comments.dt,
+    posts_comments_comments_likes = posts_comments_comments_likes.dt
+  )
+  
+}
 
 # Scraping ----------------------------------------------------------------
 
@@ -225,7 +437,7 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
 load("bin/fb_auth.rda") 
 getAppAccessToken(fb_app_id, fb_app_secret)
 
-# Get posts
+# Get posts for Rappler's page
 getFBPage(
   page_name      = "rapplerdotcom",
   limit_posts    = 20,
@@ -233,178 +445,7 @@ getFBPage(
   access_token   = fb.tkn
 ) -> posts.ls
 
-# Get post data
+# Tidy Page Data
 posts.ls %>% 
-  select(-reactions, -attachments, -comments) %>% 
-  mutate(
-    post_timestamp_utc = convertTimeStamp(created_time)
-  ) %>% 
-  select(
-    page_name    = page_name,
-    post_id      = id, 
-    post_message = message, 
-    post_timestamp_utc,
-    post_story   = story
-  ) -> posts.dt
-
-# Get post attachments data 
-posts.ls %>% 
-  select(id, attachments) %>% {
-    expandPaging(
-      object_ids  = .$id,
-      object_data = .$attachments$data,
-      object_next = .$attachments$paging$`next`
-    ) 
-  } %>% 
-  map_df(
-    function(attachments) {
-      data_frame(
-        object_id              = attachments$object_id,
-        attachment_title       = attachments$title,
-        attachment_type        = attachments$type,
-        attachment_target_url  = attachments$target$url,
-        attachment_media_url   = attachments$media$image$src
-      )
-    }
-  )->
-  posts_attachments.dt
-
-# Get post reactions data
-posts.ls %>% 
-  select(id, reactions) %>% {
-    expandPaging(
-      object_ids  = .$id,
-      object_data = .$reactions$data,
-      object_next = .$reactions$paging$`next`
-    ) %>% 
-      bind_rows() %>% 
-      select(
-        object_id     = object_id,
-        reactor_id    = id,
-        reactor_name  = name,
-        reaction_type = type
-      )
-  } ->
-  posts_reactions.dt
-
-# Get post comments raw data
-posts.ls %>% 
-  select(id, comments) %>% {
-    expandPaging(
-      object_ids  = .$id,
-      object_data = .$comments$data,
-      object_next = .$comments$paging$`next`
-    ) 
-  } ->
-  posts_comments.ls
-
-# Get post comments data
-posts_comments.ls %>% 
-  map_df(
-    function(comments) {
-      if (is.null(comments$id)) return(NULL)
-      data_frame(
-        object_id             = comments$object_id,
-        comment_id            = comments$id,
-        comment_timestamp_utc = convertTimeStamp(comments$created_time),
-        comment_message       = comments$message,
-        commenter_name        = comments$from$name,
-        commenter_id          = comments$from$id
-      ) 
-    }
-  ) -> posts_comments.dt
-
-# Get post comments likes data
-posts_comments.ls %>% 
-  map(
-    function(comments) {
-      list(
-        id    = comments$id,
-        likes = comments$likes
-      )
-    }
-  ) %>% 
-  map(
-    function(comments) {
-      expandPaging(
-        object_ids  = comments$id,
-        object_data = comments$likes$data,
-        object_next = comments$likes$paging$`next`
-      ) 
-    }
-  ) %>% 
-  flatten() %>% 
-  bind_rows() %>% 
-  select(
-    object_id   = object_id,
-    liker_id    = id,
-    liker_name  = name
-  ) ->
-  posts_comments_likes.dt
-
-# Get post comment replies raw data
-posts_comments.ls %>% 
-  map(
-    function(comments) {
-      list(
-        id       = comments$id,
-        comments = comments$comments
-      )
-    }
-  ) %>% 
-  map(
-    function(comments) {
-      expandPaging(
-        object_ids  = comments$id,
-        object_data = comments$comments$data,
-        object_next = comments$comments$paging$`next`
-      ) 
-    }
-  ) %>% 
-  flatten() ->
-  posts_comments_comments.ls
-
-# Get post comment replies data
-posts_comments_comments.ls %>% 
-  map_df(
-    function(comments) {
-      if (is.null(comments$id)) return(NULL)
-      data_frame(
-        object_id             = comments$object_id,
-        comment_id            = comments$id,
-        comment_timestamp_utc = convertTimeStamp(comments$created_time),
-        comment_message       = comments$message,
-        commenter_name        = comments$from$name,
-        commenter_id          = comments$from$id
-      ) 
-    }
-  ) -> posts_comments_comments.dt
-
-# Get post comment replies reactions data
-posts_comments_comments.ls %>% 
-  map(
-    function(comments) {
-      list(
-        id    = comments$id,
-        likes = comments$likes
-      )
-    }
-  ) %>% 
-  map(
-    function(comments) {
-      expandPaging(
-        object_ids  = comments$id,
-        object_data = comments$likes$data,
-        object_next = comments$likes$paging$`next`
-      ) 
-    }
-  ) %>% 
-  flatten() %>% 
-  bind_rows() %>% 
-  select(
-    object_id   = object_id,
-    liker_id    = id,
-    liker_name  = name
-  ) ->
-  posts_comments_comments_likes.dt
-  
+  tidyFBPageData(access_token = fb.tkn) ->
+  posts_data.lst
