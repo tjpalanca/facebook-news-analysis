@@ -1,24 +1,59 @@
-# Facebook Page Scraping
-# mail@tjpalanca.com
-# 17 Dec 2016
+---
+title: "Facebook Page Scraping"
+author: "TJ Palanca"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: "lumen"
+    highlight: "tango"
+    code_folding: hide
+    self_contained: false
+    lib_dir: libs
+---
 
-# We scrape the Facebook Graph API in order to collect the data required
-# for the analysis of fake account behaviors
+## Background
 
-# Libraries ---------------------------------------------------------------
-library(httr)      # Making API calls
-library(jsonlite)  # JSON parsing
+In order to be able to analyze news articles on Facebook, we need a method to extract the necessary information on posts, comments, comment replies and reactions thereto for a specific Facebook page. We use calls to the Facebook Graph API to retreieve this information.
 
-library(magrittr)  # Advanced piping
-library(purrr)     # Functional programming
+## Preliminaries
 
-library(stringr)   # String manipulation
-library(dplyr)     # Data frame manipulation
-library(tibble)    # Better data frames
-library(tidyr)     # Frame shaping
-library(lubridate) # Timestamp manipulation
+### Libraries
 
-# Scraping Functions ------------------------------------------------------
+We load the libraries necessary to perform the extraction:
+
+```{r setup}
+
+if(interactive()) setwd("src")
+
+suppressPackageStartupMessages({
+  library(httr)      # Making API calls
+  library(jsonlite)  # JSON parsing
+  library(rvest)     # Page scraping
+  
+  library(magrittr)  # Advanced piping
+  library(purrr)     # Functional programming
+  
+  library(stringr)   # String manipulation
+  library(dplyr)     # Data frame manipulation
+  library(tibble)    # Better data frames
+  library(tidyr)     # Frame shaping
+  library(lubridate) # Timestamp manipulation
+  
+  library(htmlwidgets)
+  library(DT)
+})
+
+```
+
+## Scraping 
+
+### Functions
+
+We set up some scraping functions to help use extract information from a Facebook Page.
+
+```{r Scraping Functions}
 
 convertTimeStamp <- function(ts) {
   # Converts string timestamp ts into POSIXct format
@@ -209,7 +244,7 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
   if (!is.infinite(limit_posts)) {
     fbposts.ls[
       1:limit_posts, 
-    ] -> fbposts.ls
+      ] -> fbposts.ls
   }
   # Limit to limit_timestamp if applicable
   if (!is.infinite(limit_timestamp)) {
@@ -221,7 +256,7 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
   # Assign page name and return
   fbposts.ls$page_name <- rep(page_name, length(fbposts.ls$id))
   fbposts.ls
-
+  
 }
 
 tidyFBPageData <- function(posts, access_token = fb.tkn) {
@@ -428,24 +463,68 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
   
 }
 
-# Scraping ----------------------------------------------------------------
 
-# Get app access token
+```
 
-# NOTE: Ensure you have two character scalars fb_app_id and fb_app_secret
-# in this rda file. You need to create your own credentials
-load("bin/fb_auth.rda") 
-getAppAccessToken(fb_app_id, fb_app_secret)
+### Execution
 
-# Get posts for Rappler's page
-getFBPage(
-  page_name      = "rapplerdotcom",
-  limit_posts    = 20,
-  posts_per_page = 10,
-  access_token   = fb.tkn
-) -> posts.ls
+In order to prevent bias in selecting the pages to be scraped, we rely on [Socialbaker's Ranking of Top 100 Media Facebook Pages in the Philippines by Total Likes](https://www.socialbakers.com/statistics/facebook/pages/total/philippines/media/page-1-5/).
 
-# Tidy Page Data
-posts.ls %>% 
-  tidyFBPageData(access_token = fb.tkn) ->
-  posts_data.lst
+```{r Top 100 Facebook Pages, cache=TRUE}
+
+map_df(
+  c(
+    "../dta/01-top-ph-media-fbpages-50.html",
+    "../dta/02-top-ph-media-fbpages-100.html"
+  ),
+  function(html) {
+    read_html(x = html, encoding = "UTF-8") %>% 
+      html_node(".brand-table-list") %>% 
+      html_table(fill = TRUE) %>% 
+      slice(1:50) %>% 
+      select(
+        rank       = X1, 
+        page_title = X2,
+        page_likes = X3
+      ) %>% 
+      mutate(
+        page_title = page_title %>% 
+          str_replace_all("^.*\n|\t", ""),
+        page_likes = page_likes %>% 
+          str_replace_all("Total Fans|\n|\t|\\s", "") %>% 
+          as.integer()
+      ) %>% 
+      mutate(
+        page_id = 
+          read_html(x = html, encoding = "UTF-8") %>% 
+          html_nodes(".name .acc-placeholder-img") %>% 
+          map_chr(html_attr, "href") %>% 
+          str_replace_all("^.*detail/", "") %>% 
+          str_extract("^[0123456789]*-") %>% 
+          str_replace_all("-", "")
+      ) %>% 
+      mutate(
+        page_name = 
+          map_chr(
+            page_id,
+            function(page_id) {
+              GET(
+                paste0("https://www.facebook.com/", page_id),
+                user_agent("Mozilla/5.0")
+              ) %$% url %>% 
+                str_extract("com/.*/$") %>% 
+                str_replace_all("com/|/", "")
+            }
+          )
+      )
+  }
+) -> top_100_fbpages.dt
+
+```
+
+```{r}
+datatable(top_100_fbpages.dt)
+```
+
+
+
