@@ -25,8 +25,6 @@ We load the libraries necessary to perform the extraction:
 
 ```{r setup}
 
-if(interactive()) setwd("src")
-
 suppressPackageStartupMessages({
   library(httr)      # Making API calls
   library(jsonlite)  # JSON parsing
@@ -45,6 +43,9 @@ suppressPackageStartupMessages({
   library(DT)
 })
 
+# Set proper working directory
+if(interactive() & !str_detect(getwd(), "src")) setwd("src")
+
 ```
 
 ## Scraping 
@@ -52,6 +53,7 @@ suppressPackageStartupMessages({
 ### Functions
 
 We set up some scraping functions to help use extract information from a Facebook Page.
+
 
 ```{r Scraping Functions}
 
@@ -101,7 +103,7 @@ callFBGraphAPI <- function(node = "", query = NULL, version = "v2.8",
     query = append(list(access_token = access_token), query)
   ) %T>% {
     # Check for API call errors
-    if(!is.null(.$error)) stop ("API Call Error")
+    if(.$status_code != 200) stop (paste0("API Call Error: ", .$status_code))
   } 
   
 }
@@ -158,8 +160,35 @@ expandPaging <- function(object_ids, object_data, object_next) {
   
 }
 
+queryFBPosts <- function(num_comments, num_attachments, num_reactions) {
+  # Generates Graph API query statement based on num
+  paste0(
+    "
+    id, created_time, message, story, 
+    attachments{
+      title, description, type, target{id, url}, media{image{src}}
+    },
+    comments.limit(", num_comments,"){
+      id, created_time, message, from{id, name},
+      comments.limit(", num_comments,"){
+        id, created_time, message, from{id, name},
+        likes.limit(", num_reactions,")
+      },
+      likes.limit(", num_reactions,"){
+        id, name
+      },
+      attachments.limit(", num_attachments,"){
+        title, description, type, target{id, url}, media{image{src}}
+      }
+    },
+    reactions.limit(", num_reactions,"){id, name, type}
+    "
+  )
+}
+
 getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf, 
-                      posts_per_page = 5, access_token = fb.tkn) {
+                      posts_per_page = 5, num_comments = 50, num_attachments = 50, 
+                      num_reactions = 500, access_token = fb.tkn) {
   # Take complete posts data from a Facebook page
   #
   # Args:
@@ -185,26 +214,7 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
   callFBGraphAPI(
     node = paste0(page_name, "/posts"),
     query = list(
-      fields = "
-        id, created_time, message, story, 
-        attachments{
-          title, description, type, target{id, url}, media{image{src}}
-        },
-        comments.limit(1000){
-          id, created_time, message, from{id, name},
-          comments.limit(1000){
-            id, created_time, message, from{id, name},
-            likes.limit(1000)
-          },
-          likes.limit(1000){
-            id, name
-          },
-          attachments.limit(1000){
-            title, description, type, target{id, url}, media{image{src}}
-          }
-        },
-        reactions.limit(1000){id, name, type}
-        ",
+      fields = queryFBPosts(num_comments, num_attachments, num_reactions),
       limit = posts_per_page
     )
   ) %>% 
@@ -225,7 +235,9 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
          !is.null(fbpage.cnt$paging$`next`)) {
     
     # Grab new content
-    GET(fbpage.cnt$paging$`next`) %>% 
+    GET(fbpage.cnt$paging$`next`) %T>% {
+      if (.$status_code != 200) stop(paste0("API Call Error: ", .$status_code))
+    } %>% 
       content(as = "text") %>% 
       fromJSON() ->
       fbpage.cnt
@@ -259,7 +271,7 @@ getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf,
   
 }
 
-tidyFBPageData <- function(posts, access_token = fb.tkn) {
+tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
   # Take a list of post data and translate into tidy data frames
   # 
   # Args:
@@ -277,6 +289,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
   #     posts_comments_comments_likes: likes on comment replies
   
   # Get post data
+  cat("Grabbing post data...\n")
   posts.ls %>% 
     select(-reactions, -attachments, -comments) %>% 
     mutate(
@@ -291,6 +304,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     ) -> posts.dt
   
   # Get post attachments data 
+  cat("Grabbing post attachments data...\n")
   posts.ls %>% 
     select(id, attachments) %>% {
       expandPaging(
@@ -306,13 +320,17 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
           attachment_title       = attachments$title,
           attachment_type        = attachments$type,
           attachment_target_url  = attachments$target$url,
-          attachment_media_url   = attachments$media$image$src
+          attachment_media_url   = ifelse(
+            is.null(attachments$media$image$src), NA,
+            attachments$media$image$src
+          )
         )
       }
     )->
     posts_attachments.dt
   
   # Get post reactions data
+  cat("Grabbing post reactions data...\n")
   posts.ls %>% 
     select(id, reactions) %>% {
       expandPaging(
@@ -331,6 +349,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     posts_reactions.dt
   
   # Get post comments raw data
+  cat("Grabbing post comments raw data...\n")
   posts.ls %>% 
     select(id, comments) %>% {
       expandPaging(
@@ -342,6 +361,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     posts_comments.ls
   
   # Get post comments data
+  cat("Grabbing post comments processed data...\n")
   posts_comments.ls %>% 
     map_df(
       function(comments) {
@@ -358,6 +378,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     ) -> posts_comments.dt
   
   # Get post comments likes data
+  cat("Grabbing post comments reactions data...\n")
   posts_comments.ls %>% 
     map(
       function(comments) {
@@ -386,6 +407,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     posts_comments_likes.dt
   
   # Get post comment replies raw data
+  cat("Grabbing post comments replies raw data...\n")
   posts_comments.ls %>% 
     map(
       function(comments) {
@@ -408,6 +430,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     posts_comments_comments.ls
   
   # Get post comment replies data
+  cat("Grabbing post comments replies processed data...\n")
   posts_comments_comments.ls %>% 
     map_df(
       function(comments) {
@@ -424,6 +447,7 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
     ) -> posts_comments_comments.dt
   
   # Get post comment replies reactions data
+  cat("Grabbing post comments replies reactions data...\n")
   posts_comments_comments.ls %>% 
     map(
       function(comments) {
@@ -450,6 +474,8 @@ tidyFBPageData <- function(posts, access_token = fb.tkn) {
       liker_name  = name
     ) ->
     posts_comments_comments_likes.dt
+  
+  cat("Done!\n")
   
   list(
     posts                         = posts.dt,
@@ -512,8 +538,8 @@ map_df(
                 paste0("https://www.facebook.com/", page_id),
                 user_agent("Mozilla/5.0")
               ) %$% url %>% 
-                str_extract("com/.*/$") %>% 
-                str_replace_all("com/|/", "")
+                str_extract("facebook.com/.*/$") %>% 
+                str_replace_all("facebook.com/|/", "")
             }
           )
       )
@@ -526,5 +552,45 @@ map_df(
 datatable(top_100_fbpages.dt)
 ```
 
+We want to isolate the pages that are classified as news sites, which unfortunately have to be manually done.
 
+```{r}
+
+newspages.ls <-
+  top_100_fbpages.dt$page_name[
+    c(2, 4, 15, 17, 19, 22, 24, 25, 28, 30, 33, 36,
+      39, 40, 44, 47, 50, 55, 69, 73, 81, 87)]
+
+print(newspages.ls)
+
+```
+
+```{r}
+
+# Load authentication files
+load("../bin/fb_auth.rda")
+
+# Get authentication
+getAppAccessToken(
+  fb_app_id = fb_app_id,
+  fb_app_secret = fb_app_secret
+)
+
+# Loop through news pages and grab content for each
+map(
+  c("rapplerdotcom"),
+  function(page_name) {
+    getFBPage(
+      page_name       = page_name,
+      limit_timestamp = as.Date('2016-01-01'), # All posts from January 1, 2016
+      posts_per_page  = 10,
+      num_comments    = 10,
+      num_reactions   = 100,
+      access_token    = fb.tkn
+    ) %>% 
+      tidyFBPageData(access_token = fb.tkn)
+  }
+) -> newspages_content.ls
+
+```
 
