@@ -3,17 +3,19 @@ title: "Facebook Page Scraping"
 author: "TJ Palanca"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
-  html_notebook:
+  html_document:
     toc: true
     toc_float: true
     theme: "lumen"
     highlight: "tango"
-    code_folding: show
+    code_folding: hide
+    self_contained: false
+    lib_dir: libs
 ---
 
 ## Background
 
-In order to be able to analyze news articles on Facebook, we need a method to extract the necessary information on posts, comments, comment replies and reactions thereto for a specific Facebook page. We use calls to the Facebook Graph API to retreieve this information.
+In order to be able to analyze news articles on Facebook, we need a method to extract the necessary information on posts, comments, comment replies and reactions thereto for a specific Facebook page. We use calls to the Facebook Graph API to retrieve this information.
 
 ## Preliminaries
 
@@ -520,17 +522,17 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
   
 }
 
-cachedGetFBPage <- function(page_name, limit_date, cache_interval, 
-                            timezone = "Asia/Manila", ...) {
+cachedGetFBPage <- function(page_name, limit_timestamp, 
+                            timezone, cache_interval, ...) {
   # Grabs complete data from a Facebook Page as specified by a date limit. 
   # Unlike getFBPage, this method caches every cache_interval to hidden object 
   # .cache_fbpage so that the process can resume in cases of failure.
   # 
   # Args:
   #   page_name: Facebook Page ID of the page
-  #   limit_date: string representing the date limit (earliest) in format YYYY-MM-DD
+  #   limit_timestamp: string representing the timestamp limit (earliest) in POSIX format
+  #   timezone: timezone for the limit_timestamp (e.g. Asia/Manila)
   #   cache_interval: in words, the interval at which it will cache (e.g. 1 day)
-  #   timezone: The relevant timezone for the postings (defaults to Asia/Manila)
   #   ...: Other arguments to be passed to getFBpage
   #   
   # Returns:
@@ -542,8 +544,8 @@ cachedGetFBPage <- function(page_name, limit_date, cache_interval,
   message("Setting up cache intervals...")
   cache_intervals.ls <- 
     seq(
-      as.POSIXct(paste0(limit_date, " 00:00:00"), tz = timezone), 
-      Sys.time(), 
+      as.POSIXct(limit_timestamp, tz = timezone), 
+      Sys.time(),
       cache_interval
     ) %>%
     rev()
@@ -578,7 +580,7 @@ cachedGetFBPage <- function(page_name, limit_date, cache_interval,
   # Get information and cache
   if (length(cache_intervals.ls) > 0) {
     for (interval in cache_intervals.ls) {
-      interval_text <- format(as.POSIXct(interval, origin = "1970-01-01"), "%Y-%m-%d %z")
+      interval_text <- format(as.POSIXct(interval, origin = "1970-01-01", tz = timezone), "%Y-%m-%d %z")
       message("Scraping up to ", interval_text, " then caching...")
       # Get information
       posts.ls %<>% append(
@@ -697,7 +699,7 @@ print(newspages.ls)
 
 ```
 
-We then 
+In order to start collecting information, we 
 
 ```{r Authentication}
 
@@ -709,23 +711,57 @@ getAppAccessToken(
   fb_app_id = fb_app_id,
   fb_app_secret = fb_app_secret
 )
-```
-
-```{r}
-
-cachedGetFBPage(
-  page_name                   = "rapplerdotcom",
-  limit_date                  = "2016-12-23",
-  cache_interval              = "1 day",
-  posts_per_page              = 5,
-  num_comments                = 10, 
-  num_attachments             = 10,
-  num_reactions               = 100,  
-  num_comments_likes          = 50, 
-  num_comments_comments       = 10,
-  num_comments_comments_likes = 50,
-  access_token                = fb.tkn
-) -> rappler_posts.dt
 
 ```
+
+```{r Rappler 2016 Posts, message = FALSE}
+
+# Exhibit: Download all Rappler posts for 2016
+
+errors <- 0
+
+rappler_posts.dt <-
+  try({
+    cachedGetFBPage(
+      page_name                   = "rapplerdotcom",
+      limit_timestamp             = "2016-01-01 00:00:00",
+      timezone                    = "Asia/Manila",
+      cache_interval              = "1 day",
+      posts_per_page              = 5,
+      num_comments                = 10, 
+      num_attachments             = 10,
+      num_reactions               = 100,  
+      num_comments_likes          = 50, 
+      num_comments_comments       = 10,
+      num_comments_comments_likes = 50,
+      access_token                = fb.tkn
+    )
+  })
+
+while(class(rappler_posts.dt) == "try-error" & errors <= 100) {
+  errors <- errors + 1
+  message(errors, " errors made. ", 100 - errors, " errors left.")
+  rappler_posts.dt <-
+  try({
+    cachedGetFBPage(
+      page_name                   = "rapplerdotcom",
+      limit_timestamp             = "2016-01-01 00:00:00",
+      timezone                    = "Asia/Manila",
+      cache_interval              = "1 day",
+      posts_per_page              = 5,
+      num_comments                = 10, 
+      num_attachments             = 10,
+      num_reactions               = 100,  
+      num_comments_likes          = 50, 
+      num_comments_comments       = 10,
+      num_comments_comments_likes = 50,
+      access_token                = fb.tkn
+    )
+  })
+}
+
+saveRDS(rappler_posts.dt, "../dta/03-rappler-posts.rds")
+
+```
+
 
