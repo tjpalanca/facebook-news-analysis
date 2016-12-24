@@ -143,12 +143,14 @@ expandPaging <- function(object_ids, object_data, object_next) {
     ),
     function(object_id, object_data, object_next) {
       
-      message("Expanding pagination for ", object_id, "...")
+      message(".", appendLF = FALSE)
       
       data <- object_data
       
       while(ifelse(is.null(object_next), FALSE, 
                    ifelse(is.na(object_next), FALSE, TRUE))) {
+        message(".", appendLF = FALSE)
+        
         GET(object_next) %>% 
           content(as = "text") %>% 
           fromJSON() ->
@@ -169,13 +171,14 @@ expandPaging <- function(object_ids, object_data, object_next) {
   
 }
 
-queryFBPosts <- function(num_comments, num_attachments, num_reactions) {
+queryFBPosts <- function(
+  num_comments, num_attachments, num_reactions, 
+  num_comments_likes, num_comments_comments, num_comments_comments_likes
+) {
   # Generates Graph API query statement based on number of entities
   # 
   # Args:
-  #   num_comments: number of comment entities
-  #   num_attachments: number of attachment entities
-  #   num_reactions: number of recation entities
+  #   num_*: number of that entity to retrieve for the first page.
   #   
   # Returns:
   #   Facebook Graph API Query String that can be passed on to the API call.
@@ -187,11 +190,11 @@ queryFBPosts <- function(num_comments, num_attachments, num_reactions) {
     },
     comments.limit(", num_comments,"){
       id, created_time, message, from{id, name},
-      comments.limit(", num_comments,"){
+      comments.limit(", num_comments_comments,"){
         id, created_time, message, from{id, name},
-        likes.limit(", num_reactions,")
+        likes.limit(", num_comments_comments_likes,")
       },
-      likes.limit(", num_reactions,"){
+      likes.limit(", num_comments_likes,"){
         id, name
       },
       attachments.limit(", num_attachments,"){
@@ -203,9 +206,12 @@ queryFBPosts <- function(num_comments, num_attachments, num_reactions) {
   )
 }
 
-getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf, limit_timestamp = -Inf, 
-                      posts_per_page = 5, num_comments = 50, num_attachments = 50, 
-                      num_reactions = 500, access_token = fb.tkn) {
+getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf, 
+                      limit_timestamp = -Inf, posts_per_page = 5, 
+                      num_comments = 50, num_attachments = 50, num_reactions = 500,  
+                      num_comments_likes = 100, num_comments_comments = 10,
+                      num_comments_comments_likes = 100,
+                      access_token = fb.tkn) {
   # Take complete posts data from a Facebook page
   #
   # Args:
@@ -234,7 +240,10 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf, lim
     callFBGraphAPI(
       node = paste0(page_name, "/posts"),
       query = list(
-        fields = queryFBPosts(num_comments, num_attachments, num_reactions),
+        fields = queryFBPosts(
+          num_comments, num_attachments, num_reactions, 
+          num_comments_likes, num_comments_comments, num_comments_comments_likes
+        ),
         limit = posts_per_page
       )
     ) %>% 
@@ -252,7 +261,7 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf, lim
   fbposts.ls  <- fbpage.cnt$data
   num_posts   <- nrow(fbposts.ls)
   min_created <- min(convertTimeStamp(fbposts.ls$created_time))
-  message(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S %z"))
+  message(num_posts, " posts - ", format(min_created, "%Y-%m-%d %H:%M:%S %z"))
   
   # Repeat while limit_posts or limit_timestamp has not been reached and 
   # next page still exists
@@ -272,7 +281,7 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf, lim
     # Recompute limits and report
     num_posts   <- nrow(fbposts.ls)
     min_created <- min(convertTimeStamp(fbposts.ls$created_time))
-    message(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S %z"))
+    message(num_posts, " posts - ", format(min_created, "%Y-%m-%d %H:%M:%S %z"))
     
   }
   
@@ -305,7 +314,7 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
   #     posts_comments_comments_likes: likes on comment replies
   
   # Get post data
-  message("Grabbing post data...\n")
+  message("Grabbing post data...", appendLF = FALSE)
   posts.ls %>% 
     select(-reactions, -attachments, -comments) %>% 
     mutate(
@@ -318,9 +327,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
       post_timestamp_utc,
       post_story   = story
     ) -> posts.dt
+  message(" Done!")
   
   # Get post attachments data 
-  message("Grabbing post attachments data...\n")
+  message("Grabbing post attachments data...", appendLF = FALSE)
   posts.ls %>% 
     select(id, attachments) %>% {
       expandPaging(
@@ -344,9 +354,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
       }
     )->
     posts_attachments.dt
+  message(" Done!")
   
   # Get post reactions data
-  message("Grabbing post reactions data...\n")
+  message("Grabbing post reactions data...", appendLF = FALSE)
   posts.ls %>% 
     select(id, reactions) %>% {
       expandPaging(
@@ -363,9 +374,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
         )
     } ->
     posts_reactions.dt
+  message(" Done!")
   
   # Get post comments raw data
-  message("Grabbing post comments raw data...\n")
+  message("Grabbing post comments raw data...", appendLF = FALSE)
   posts.ls %>% 
     select(id, comments) %>% {
       expandPaging(
@@ -375,9 +387,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
       ) 
     } ->
     posts_comments.ls
+  message(" Done!")
   
   # Get post comments data
-  message("Grabbing post comments processed data...\n")
+  message("Grabbing post comments processed data...", appendLF = FALSE)
   posts_comments.ls %>% 
     map_df(
       function(comments) {
@@ -392,9 +405,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
         ) 
       }
     ) -> posts_comments.dt
+  message(" Done!")
   
   # Get post comments likes data
-  message("Grabbing post comments reactions data...\n")
+  message("Grabbing post comments reactions data...", appendLF = FALSE)
   posts_comments.ls %>% 
     map(
       function(comments) {
@@ -421,9 +435,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
       liker_name  = name
     ) ->
     posts_comments_likes.dt
+  message(" Done!")
   
   # Get post comment replies raw data
-  message("Grabbing post comments replies raw data...\n")
+  message("Grabbing post comments replies raw data...", appendLF = FALSE)
   posts_comments.ls %>% 
     map(
       function(comments) {
@@ -444,9 +459,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
     ) %>% 
     flatten() ->
     posts_comments_comments.ls
+  message(" Done!")
   
   # Get post comment replies data
-  message("Grabbing post comments replies processed data...\n")
+  message("Grabbing post comments replies processed data...", appendLF = FALSE)
   posts_comments_comments.ls %>% 
     map_df(
       function(comments) {
@@ -461,9 +477,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
         ) 
       }
     ) -> posts_comments_comments.dt
+  message(" Done!")
   
   # Get post comment replies reactions data
-  message("Grabbing post comments replies reactions data...\n")
+  message("Grabbing post comments replies reactions data...", appendLF = FALSE)
   posts_comments_comments.ls %>% 
     map(
       function(comments) {
@@ -490,9 +507,9 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
       liker_name  = name
     ) ->
     posts_comments_comments_likes.dt
+  message(" Done!")
   
-  message("Done!\n")
-  
+  message("Returning data...")
   list(
     posts                         = posts.dt,
     posts_attachments             = posts_attachments.dt,
@@ -698,17 +715,19 @@ getAppAccessToken(
 
 ```{r}
 
-
 cachedGetFBPage(
-  page_name       = "rapplerdotcom",
-  limit_date      = "2016-12-21",
-  cache_interval  = "1 day",
-  posts_per_page  = 5, 
-  num_comments    = 10, 
-  num_attachments = 10, 
-  num_reactions   = 5, 
-  access_token     = fb.tkn
-) -> a
+  page_name                   = "rapplerdotcom",
+  limit_date                  = "2016-12-23",
+  cache_interval              = "1 day",
+  posts_per_page              = 5,
+  num_comments                = 10, 
+  num_attachments             = 10,
+  num_reactions               = 100,  
+  num_comments_likes          = 50, 
+  num_comments_comments       = 10,
+  num_comments_comments_likes = 50,
+  access_token                = fb.tkn
+) -> rappler_posts.dt
 
 ```
 
