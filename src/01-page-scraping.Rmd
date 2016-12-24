@@ -186,306 +186,317 @@ queryFBPosts <- function(num_comments, num_attachments, num_reactions) {
   )
 }
 
-getFBPage <- function(page_name, limit_posts = Inf, limit_timestamp = -Inf, 
+getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf, limit_timestamp = -Inf, 
                       posts_per_page = 5, num_comments = 50, num_attachments = 50, 
                       num_reactions = 500, access_token = fb.tkn) {
   # Take complete posts data from a Facebook page
   #
   # Args:
   #   page_name:       username or page_id of the page to be scraped
+  #   next_link:       if continuing from a previous query, the next link to be called
   #   limit_posts:     maximum number of posts to be scraped
   #   limit_timestamp: earliest timestamp of posts to be scraped
   #   posts_per_page:  number of posts per call (reduce if failing)
+  #   num_comments, num_attachments, num_reactions: Number of entities to include in each call
+  #     reduce the number if you are getting 500 errors
   #   access_token:    app access token (not needed if fb.tkn initialized)
   #
   # Returns:
-  #   A list of post data
+  #   A list of post data, and the next link, bound in a list
   
-  # Raise exception if no limit is specified
-  if (is.infinite(limit_posts) & is.infinite(limit_timestamp)) {
-    stop("No post or date limit specified!")
-  }
+  # INPUT VALIDATION
   
-  # Raise exception if no page_name specific
-  if (is.null(page_name)) stop("No page name specified!")
-  
-  # Make initial API call
-  
-  callFBGraphAPI(
-    node = paste0(page_name, "/posts"),
-    query = list(
-      fields = queryFBPosts(num_comments, num_attachments, num_reactions),
-      limit = posts_per_page
-    )
-  ) %>% 
-    content(as = "text") %>% 
-    fromJSON() -> 
-    fbpage.cnt
-  
-  # Extract data and limit comparison data
-  fbposts.ls  <- fbpage.cnt$data
-  num_posts   <- nrow(fbposts.ls)
-  min_created <- min(convertTimeStamp(fbposts.ls$created_time))
-  cat(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S"), "\n")
-  
-  # Repeat while limit_posts or limit_timestamp has not been reached and 
-  # next page still exists
-  while (num_posts   < limit_posts & 
-         min_created > limit_timestamp &
-         !is.null(fbpage.cnt$paging$`next`)) {
+    # Raise exception if no limit is specified
+    if (is.infinite(limit_posts) & is.infinite(limit_timestamp)) {
+      stop("No post or date limit specified!")
+    }
     
-    # Grab new content
-    GET(fbpage.cnt$paging$`next`) %T>% {
-      if (.$status_code != 200) stop(paste0("API Call Error: ", .$status_code))
-    } %>% 
-      content(as = "text") %>% 
-      fromJSON() ->
-      fbpage.cnt
-    
-    # Bin new content
-    rbind.pages(pages = list(fbposts.ls, fbpage.cnt$data)) -> fbposts.ls
-    
-    # Recompute limits and report
+    # Raise exception if no page_name specified
+    if (is.null(page_name) & is.null(next_link)) stop("No page name specified!")
+  
+  # SCRAPING
+  
+    # Make initial API call
+    if (is.na(next_link)) {
+      callFBGraphAPI(
+        node = paste0(page_name, "/posts"),
+        query = list(
+          fields = queryFBPosts(num_comments, num_attachments, num_reactions),
+          limit = posts_per_page
+        )
+      ) %>% 
+        content(as = "text") %>% 
+        fromJSON() -> 
+        fbpage.cnt
+    } else if (!is.na(next_link)) {
+      GET(next_link) %T>% {
+        if (.$status_code != 200) stop(paste0("API Call Error: ", .$status_code))
+      } %>% 
+        content(as = "text") %>% 
+        fromJSON() ->
+        fbpage.cnt
+    }
+  
+    # Extract data and limit comparison data
+    fbposts.ls  <- fbpage.cnt$data
     num_posts   <- nrow(fbposts.ls)
     min_created <- min(convertTimeStamp(fbposts.ls$created_time))
     cat(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S"), "\n")
     
+    # Repeat while limit_posts or limit_timestamp has not been reached and 
+    # next page still exists
+    while (num_posts   < limit_posts & 
+           min_created > limit_timestamp &
+           !is.null(fbpage.cnt$paging$`next`)) {
+      
+      # Grab new content
+      GET(fbpage.cnt$paging$`next`) %T>% {
+        if (.$status_code != 200) stop(paste0("API Call Error: ", .$status_code))
+      } %>% 
+        content(as = "text") %>% 
+        fromJSON() ->
+        fbpage.cnt
+      
+      # Bind new content
+      rbind.pages(pages = list(fbposts.ls, fbpage.cnt$data)) -> fbposts.ls
+      
+      # Recompute limits and report
+      num_posts   <- nrow(fbposts.ls)
+      min_created <- min(convertTimeStamp(fbposts.ls$created_time))
+      cat(num_posts, "posts -", format(min_created, "%Y-%m-%d %H:%M:%S"), "\n")
+      
+    }
+    
+    # Assign page name and return
+    fbposts.ls$page_name <- rep(page_name, length(fbposts.ls$id))
+  
+  # RETURN RESULTS
+    
+    # Return with next link (in case of further querying)
+    list(
+      posts = fbposts.ls,
+      next_link = fbpage.cnt$paging$`next`
+    )
+    
   }
   
-  # Limit to limit_posts if applicable
-  if (!is.infinite(limit_posts)) {
-    fbposts.ls[
-      1:limit_posts, 
-      ] -> fbposts.ls
-  }
-  # Limit to limit_timestamp if applicable
-  if (!is.infinite(limit_timestamp)) {
-    fbposts.ls[
-      which(convertTimeStamp(fbposts.ls$created_time) > limit_timestamp), 
-      ] -> fbposts.ls
-  }
-  
-  # Assign page name and return
-  fbposts.ls$page_name <- rep(page_name, length(fbposts.ls$id))
-  fbposts.ls
-  
-}
-
-tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
-  # Take a list of post data and translate into tidy data frames
-  # 
-  # Args:
-  #   posts:        list of post data generated from `getFBPage`
-  #   access_token: Facebook app access token (not needed if fb.tkn exists)
-  #
-  # Returns:
-  #   List of 7 dataframes:
-  #     posts:             posts data
-  #     posts_reactions:   reactions to top-level posts
-  #     posts_attachments: data of articles/links/media attached to post
-  #     posts_comments:    comments on posts
-  #     posts_comments_likes:    likes on comments on posts
-  #     posts_comments_comments: comment replies
-  #     posts_comments_comments_likes: likes on comment replies
-  
-  # Get post data
-  cat("Grabbing post data...\n")
-  posts.ls %>% 
-    select(-reactions, -attachments, -comments) %>% 
-    mutate(
-      post_timestamp_utc = convertTimeStamp(created_time)
-    ) %>% 
-    select(
-      page_name    = page_name,
-      post_id      = id, 
-      post_message = message, 
-      post_timestamp_utc,
-      post_story   = story
-    ) -> posts.dt
-  
-  # Get post attachments data 
-  cat("Grabbing post attachments data...\n")
-  posts.ls %>% 
-    select(id, attachments) %>% {
-      expandPaging(
-        object_ids  = .$id,
-        object_data = .$attachments$data,
-        object_next = .$attachments$paging$`next`
-      ) 
-    } %>% 
-    map_df(
-      function(attachments) {
-        data_frame(
-          object_id              = attachments$object_id,
-          attachment_title       = attachments$title,
-          attachment_type        = attachments$type,
-          attachment_target_url  = attachments$target$url,
-          attachment_media_url   = ifelse(
-            is.null(attachments$media$image$src), NA,
-            attachments$media$image$src
-          )
-        )
-      }
-    )->
-    posts_attachments.dt
-  
-  # Get post reactions data
-  cat("Grabbing post reactions data...\n")
-  posts.ls %>% 
-    select(id, reactions) %>% {
-      expandPaging(
-        object_ids  = .$id,
-        object_data = .$reactions$data,
-        object_next = .$reactions$paging$`next`
+  tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
+    # Take a list of post data and translate into tidy data frames
+    # 
+    # Args:
+    #   posts:        list of post data generated from `getFBPage`
+    #   access_token: Facebook app access token (not needed if fb.tkn exists)
+    #
+    # Returns:
+    #   List of 7 dataframes:
+    #     posts:             posts data
+    #     posts_reactions:   reactions to top-level posts
+    #     posts_attachments: data of articles/links/media attached to post
+    #     posts_comments:    comments on posts
+    #     posts_comments_likes:    likes on comments on posts
+    #     posts_comments_comments: comment replies
+    #     posts_comments_comments_likes: likes on comment replies
+    
+    # Get post data
+    cat("Grabbing post data...\n")
+    posts.ls %>% 
+      select(-reactions, -attachments, -comments) %>% 
+      mutate(
+        post_timestamp_utc = convertTimeStamp(created_time)
       ) %>% 
-        bind_rows() %>% 
-        select(
-          object_id     = object_id,
-          reactor_id    = id,
-          reactor_name  = name,
-          reaction_type = type
-        )
-    } ->
-    posts_reactions.dt
-  
-  # Get post comments raw data
-  cat("Grabbing post comments raw data...\n")
-  posts.ls %>% 
-    select(id, comments) %>% {
-      expandPaging(
-        object_ids  = .$id,
-        object_data = .$comments$data,
-        object_next = .$comments$paging$`next`
-      ) 
-    } ->
-    posts_comments.ls
-  
-  # Get post comments data
-  cat("Grabbing post comments processed data...\n")
-  posts_comments.ls %>% 
-    map_df(
-      function(comments) {
-        if (is.null(comments$id)) return(NULL)
-        data_frame(
-          object_id             = comments$object_id,
-          comment_id            = comments$id,
-          comment_timestamp_utc = convertTimeStamp(comments$created_time),
-          comment_message       = comments$message,
-          commenter_name        = comments$from$name,
-          commenter_id          = comments$from$id
-        ) 
-      }
-    ) -> posts_comments.dt
-  
-  # Get post comments likes data
-  cat("Grabbing post comments reactions data...\n")
-  posts_comments.ls %>% 
-    map(
-      function(comments) {
-        list(
-          id    = comments$id,
-          likes = comments$likes
-        )
-      }
-    ) %>% 
-    map(
-      function(comments) {
+      select(
+        page_name    = page_name,
+        post_id      = id, 
+        post_message = message, 
+        post_timestamp_utc,
+        post_story   = story
+      ) -> posts.dt
+    
+    # Get post attachments data 
+    cat("Grabbing post attachments data...\n")
+    posts.ls %>% 
+      select(id, attachments) %>% {
         expandPaging(
-          object_ids  = comments$id,
-          object_data = comments$likes$data,
-          object_next = comments$likes$paging$`next`
+          object_ids  = .$id,
+          object_data = .$attachments$data,
+          object_next = .$attachments$paging$`next`
         ) 
-      }
-    ) %>% 
-    flatten() %>% 
-    bind_rows() %>% 
-    select(
-      object_id   = object_id,
-      liker_id    = id,
-      liker_name  = name
-    ) ->
-    posts_comments_likes.dt
-  
-  # Get post comment replies raw data
-  cat("Grabbing post comments replies raw data...\n")
-  posts_comments.ls %>% 
-    map(
-      function(comments) {
-        list(
-          id       = comments$id,
-          comments = comments$comments
-        )
-      }
-    ) %>% 
-    map(
-      function(comments) {
+      } %>% 
+      map_df(
+        function(attachments) {
+          data_frame(
+            object_id              = attachments$object_id,
+            attachment_title       = attachments$title,
+            attachment_type        = attachments$type,
+            attachment_target_url  = attachments$target$url,
+            attachment_media_url   = ifelse(
+              is.null(attachments$media$image$src), NA,
+              attachments$media$image$src
+            )
+          )
+        }
+      )->
+      posts_attachments.dt
+    
+    # Get post reactions data
+    cat("Grabbing post reactions data...\n")
+    posts.ls %>% 
+      select(id, reactions) %>% {
         expandPaging(
-          object_ids  = comments$id,
-          object_data = comments$comments$data,
-          object_next = comments$comments$paging$`next`
-        ) 
-      }
-    ) %>% 
-    flatten() ->
-    posts_comments_comments.ls
-  
-  # Get post comment replies data
-  cat("Grabbing post comments replies processed data...\n")
-  posts_comments_comments.ls %>% 
-    map_df(
-      function(comments) {
-        if (is.null(comments$id)) return(NULL)
-        data_frame(
-          object_id             = comments$object_id,
-          comment_id            = comments$id,
-          comment_timestamp_utc = convertTimeStamp(comments$created_time),
-          comment_message       = comments$message,
-          commenter_name        = comments$from$name,
-          commenter_id          = comments$from$id
-        ) 
-      }
-    ) -> posts_comments_comments.dt
-  
-  # Get post comment replies reactions data
-  cat("Grabbing post comments replies reactions data...\n")
-  posts_comments_comments.ls %>% 
-    map(
-      function(comments) {
-        list(
-          id    = comments$id,
-          likes = comments$likes
-        )
-      }
-    ) %>% 
-    map(
-      function(comments) {
+          object_ids  = .$id,
+          object_data = .$reactions$data,
+          object_next = .$reactions$paging$`next`
+        ) %>% 
+          bind_rows() %>% 
+          select(
+            object_id     = object_id,
+            reactor_id    = id,
+            reactor_name  = name,
+            reaction_type = type
+          )
+      } ->
+      posts_reactions.dt
+    
+    # Get post comments raw data
+    cat("Grabbing post comments raw data...\n")
+    posts.ls %>% 
+      select(id, comments) %>% {
         expandPaging(
-          object_ids  = comments$id,
-          object_data = comments$likes$data,
-          object_next = comments$likes$paging$`next`
+          object_ids  = .$id,
+          object_data = .$comments$data,
+          object_next = .$comments$paging$`next`
         ) 
-      }
-    ) %>% 
-    flatten() %>% 
-    bind_rows() %>% 
-    select(
-      object_id   = object_id,
-      liker_id    = id,
-      liker_name  = name
-    ) ->
-    posts_comments_comments_likes.dt
+      } ->
+      posts_comments.ls
+    
+    # Get post comments data
+    cat("Grabbing post comments processed data...\n")
+    posts_comments.ls %>% 
+      map_df(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          data_frame(
+            object_id             = comments$object_id,
+            comment_id            = comments$id,
+            comment_timestamp_utc = convertTimeStamp(comments$created_time),
+            comment_message       = comments$message,
+            commenter_name        = comments$from$name,
+            commenter_id          = comments$from$id
+          ) 
+        }
+      ) -> posts_comments.dt
+    
+    # Get post comments likes data
+    cat("Grabbing post comments reactions data...\n")
+    posts_comments.ls %>% 
+      map(
+        function(comments) {
+          list(
+            id    = comments$id,
+            likes = comments$likes
+          )
+        }
+      ) %>% 
+      map(
+        function(comments) {
+          expandPaging(
+            object_ids  = comments$id,
+            object_data = comments$likes$data,
+            object_next = comments$likes$paging$`next`
+          ) 
+        }
+      ) %>% 
+      flatten() %>% 
+      bind_rows() %>% 
+      select(
+        object_id   = object_id,
+        liker_id    = id,
+        liker_name  = name
+      ) ->
+      posts_comments_likes.dt
+    
+    # Get post comment replies raw data
+    cat("Grabbing post comments replies raw data...\n")
+    posts_comments.ls %>% 
+      map(
+        function(comments) {
+          list(
+            id       = comments$id,
+            comments = comments$comments
+          )
+        }
+      ) %>% 
+      map(
+        function(comments) {
+          expandPaging(
+            object_ids  = comments$id,
+            object_data = comments$comments$data,
+            object_next = comments$comments$paging$`next`
+          ) 
+        }
+      ) %>% 
+      flatten() ->
+      posts_comments_comments.ls
+    
+    # Get post comment replies data
+    cat("Grabbing post comments replies processed data...\n")
+    posts_comments_comments.ls %>% 
+      map_df(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          data_frame(
+            object_id             = comments$object_id,
+            comment_id            = comments$id,
+            comment_timestamp_utc = convertTimeStamp(comments$created_time),
+            comment_message       = comments$message,
+            commenter_name        = comments$from$name,
+            commenter_id          = comments$from$id
+          ) 
+        }
+      ) -> posts_comments_comments.dt
+    
+    # Get post comment replies reactions data
+    cat("Grabbing post comments replies reactions data...\n")
+    posts_comments_comments.ls %>% 
+      map(
+        function(comments) {
+          list(
+            id    = comments$id,
+            likes = comments$likes
+          )
+        }
+      ) %>% 
+      map(
+        function(comments) {
+          expandPaging(
+            object_ids  = comments$id,
+            object_data = comments$likes$data,
+            object_next = comments$likes$paging$`next`
+          ) 
+        }
+      ) %>% 
+      flatten() %>% 
+      bind_rows() %>% 
+      select(
+        object_id   = object_id,
+        liker_id    = id,
+        liker_name  = name
+      ) ->
+      posts_comments_comments_likes.dt
+    
+    cat("Done!\n")
   
-  cat("Done!\n")
-  
-  list(
-    posts                         = posts.dt,
-    posts_attachments             = posts_attachments.dt,
-    posts_reactions               = posts_reactions.dt,
-    posts_comments                = posts_comments.dt,
-    posts_comments_likes          = posts_comments_likes.dt,
-    posts_comments_comments       = posts_comments_comments.dt,
-    posts_comments_comments_likes = posts_comments_comments_likes.dt
-  )
+  # RETURN RESULTS 
+    
+    list(
+      posts                         = posts.dt,
+      posts_attachments             = posts_attachments.dt,
+      posts_reactions               = posts_reactions.dt,
+      posts_comments                = posts_comments.dt,
+      posts_comments_likes          = posts_comments_likes.dt,
+      posts_comments_comments       = posts_comments_comments.dt,
+      posts_comments_comments_likes = posts_comments_comments_likes.dt
+    )
   
 }
 
@@ -534,6 +545,7 @@ map_df(
           map_chr(
             page_id,
             function(page_id) {
+              message(page_id)
               GET(
                 paste0("https://www.facebook.com/", page_id),
                 user_agent("Mozilla/5.0")
@@ -576,21 +588,70 @@ getAppAccessToken(
   fb_app_secret = fb_app_secret
 )
 
-# Loop through news pages and grab content for each
-map(
-  c("rapplerdotcom"),
-  function(page_name) {
-    getFBPage(
-      page_name       = page_name,
-      limit_timestamp = as.Date('2016-01-01'), # All posts from January 1, 2016
-      posts_per_page  = 10,
-      num_comments    = 10,
-      num_reactions   = 100,
-      access_token    = fb.tkn
-    ) %>% 
-      tidyFBPageData(access_token = fb.tkn)
+cachedGetFBPage <- function(page_name, limit_timestamp, cache_interval, ...) {
+  
+  # Set cache intervals
+  cache_intervals.ls <- 
+    rev(seq(as.POSIXct(limit_timestamp, tz = "SGT"), Sys.time(), cache_interval))
+  cache_intervals.ls <-
+    cache_intervals.ls[2:length(cache_intervals.ls)]
+  
+  # Check if cached object exists and initialize variables accordingly
+  if (exists(".cache_fbpage", globalenv())) {
+    # Record cache
+    cache <- .cache_fbpage
+    # Check if page_name is equal
+    if (unique(cache[1]$posts$page_name) == page_name) {
+      # Update cache_intervals.ls
+      cache_intervals.ls <- 
+        cache_intervals.ls[cache_intervals.ls < 
+                             min(convertTimeStamp(cache[length(cache)]$posts$created_time))]
+      # Restore cache
+      posts.ls <- cache
+    } else {
+      # Clear the cache
+      rm(.cache_fbpage, envir = globalenv())
+      # Initialize posts.ls
+      posts.ls <- list()
+    }
+  } else {
+    # If cached object does not exist, initialize posts.ls
+    posts.ls <- list()
   }
-) -> newspages_content.ls
+  
+  # Show cache intervals
+  cat(paste0(format(cache_intervals.ls, "%Y-%m-%d %z"), collapse = "\n"), "\n")
+  
+  # Get information and cache
+  for (interval in cache_intervals.ls) {
+    cat(format(as.POSIXct(interval, origin = "1970-01-01"), "%Y-%m-%d %z"), "\n")
+    # Get information
+    posts.ls %<>% append(
+      getFBPage(
+        page_name       = page_name,
+        next_link       = ifelse(length(posts.ls) == 0, NA, posts.ls[length(posts.ls)]$next_link),
+        limit_timestamp = as.POSIXct(interval, origin = "1970-01-01"),
+        ...
+      )
+    )
+    # Cache
+    .cache_fbpage <<- posts.ls
+  }
+  
+  posts.ls
+  
+}
+
+cachedGetFBPage(
+  page_name       = "rapplerdotcom",
+  limit_timestamp = "2016-12-10",
+  cache_interval  = "1 day",
+  posts_per_page  = 5, 
+  num_comments    = 10, 
+  num_attachments = 10, 
+  num_reactions   = 5, 
+  access_token     = fb.tkn
+) -> a
 
 ```
 
