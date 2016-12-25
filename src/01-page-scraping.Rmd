@@ -39,8 +39,10 @@ suppressPackageStartupMessages({
   library(tidyr)     # Frame shaping
   library(lubridate) # Timestamp manipulation
   
-  library(htmlwidgets)
-  library(DT)
+  library(htmlwidgets) # Javascript bindings
+  library(DT)          # DataTables JS Library
+  
+  library(pushoverr)   # Push notifications upon completion of long-running processes
 })
 
 # Set proper working directory
@@ -739,8 +741,6 @@ getAppAccessToken(
 
 # Exhibit: Download all Rappler posts for 2016
 
-errors <- 0
-
 rappler_posts.ls <-
   try({
     cachedGetFBPage(
@@ -759,33 +759,16 @@ rappler_posts.ls <-
     )
   })
 
-while(class(rappler_posts.ls) == "try-error" & errors < 5) {
-  
-  # Increase error count if errored out
-  errors <- errors + 1
-  message(errors, " errors made. ", 5 - errors, " errors left.")
-  
-  rappler_posts.ls <-
-    try({
-      cachedGetFBPage(
-        page_name                   = "rapplerdotcom",
-        limit_timestamp             = "2016-01-01 00:00:00",
-        timezone                    = "Asia/Manila",
-        cache_interval              = "7 days",
-        posts_per_page              = 5,
-        num_comments                = 100, 
-        num_attachments             = 100,
-        num_reactions               = 1000,  
-        num_comments_likes          = 500, 
-        num_comments_comments       = 50,
-        num_comments_comments_likes = 500,
-        access_token                = fb.tkn
-      )
-    })
-
-}
-
 saveRDS(rappler_posts.ls, "../dta/03-rappler-posts.rds")
 
+load("../bin/pushover_auth.rda")
+
+pushover(
+  title = "R Execution Completed",
+  message = ifelse(class(rappler_posts.ls) == "try-error", rappler_posts.ls[[1]], "Success"),
+  priority = 1,
+  user = pushover_user_key,
+  app = pushover_app_key
+)
 ```
 
