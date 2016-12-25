@@ -113,7 +113,7 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
   result %T>% {
     # Check for API call errors
     if(.$status_code != 200) stop (paste0("API Call Error: ", .$status_code))
-  } %>% 
+  } 
   
 }
 
@@ -559,31 +559,36 @@ cachedGetFBPage <- function(page_name, limit_timestamp,
     ) %>%
     rev()
   
+  # Gather all cache file paths
+  fbpage_caches.ls <- 
+    list.files("../cache", full.names = TRUE)[
+      str_detect(list.files("../cache"), "FBPage_.+.rds")]
+  
   # Check if cached object exists and initialize variables accordingly
-  if (file.exists("../cache/FBpage.rds")) {
+  if (length(fbpage_caches.ls) > 0) {
     message("Cache exists: Checking if page name match")
     # Record cache
-    cache <- readRDS("../cache/FBpage.rds")
+    cache <- readRDS(sort(fbpage_caches.ls)[1])
     # Check if page_name is equal
-    if (unique(cache[[1]]$posts$page_name) == page_name) {
+    if (unique(cache$posts$page_name) == page_name) {
       message("Page name matches (", page_name, "): Using cache.")
       # Update cache_intervals.ls
       cache_intervals.ls <- 
         cache_intervals.ls[cache_intervals.ls < 
-                             min(convertTimeStamp(cache[[length(cache)]]$posts$created_time))]
+                             min(convertTimeStamp(cache$posts$created_time))]
       # Restore cache
       posts.ls <- cache
     } else {
       message("Page name does not match (", page_name, "): Deleting cache.")
       # Clear the cache
-      file.remove("../cache/FBpage.rds")
+      file.remove(fbpage_caches.ls)
       # Initialize posts.ls
-      posts.ls <- list()
+      posts.ls <- NULL
     }
   } else {
     message("Cache does not exist: Intiializing cache")
     # If cached object does not exist, initialize posts.ls
-    posts.ls <- list()
+    posts.ls <- NULL
   }
   
   # Get information and cache
@@ -592,45 +597,52 @@ cachedGetFBPage <- function(page_name, limit_timestamp,
       interval_text <- format(as.POSIXct(interval, origin = "1970-01-01", tz = timezone), "%Y-%m-%d %z")
       message("Scraping up to ", interval_text, " then caching...")
       # Get information
-      posts.ls %<>% append(
-        list(
-          getFBPage(
-            page_name       = page_name,
-            next_link       = ifelse(
-              length(posts.ls) == 0, NA, 
-              posts.ls[[length(posts.ls)]]$next_link
-            ),
-            limit_timestamp = as.POSIXct(interval, origin = "1970-01-01"),
-            ...
-          )
+      posts.ls <-
+        getFBPage(
+          page_name       = page_name,
+          next_link       = ifelse(
+            length(posts.ls) == 0, NA, 
+            posts.ls$next_link
+          ),
+          limit_timestamp = as.POSIXct(interval, origin = "1970-01-01"),
+          ...
         )
-      )
-      message("Scraped up to ", interval_text, " and cached.")
       # Cache
-      saveRDS(posts.ls, "../cache/FBpage.rds")
+      saveRDS(posts.ls, paste0("../cache/FBPage_", interval_text,".rds"))
+      message("Scraped up to ", interval_text, " and cached.")
     }
   }
   
   # Expand paginated content
   message("Page downloading is complete: now expanding pagination and tidying data.")
   
-  for (index in 1:length(posts.ls)) {
-    message("Expanding pages... ", round(index/length(posts.ls) * 100), "% complete.")
+  # Refresh cache file paths
+  fbpage_caches.ls <- 
+    list.files("../cache", full.names = TRUE)[
+      str_detect(list.files("../cache"), "FBPage_.+.rds")]
+  
+  for (index in 1:length(fbpage_caches.ls)) {
+    message("Expanding pages... ", round(index/length(fbpage_caches.ls) * 100), "% complete.")
     # If posts_expanded does not exist, add it
-    if (is.null(posts.ls[[index]]$posts_expanded)) {
-      posts.ls[[index]]$posts_expanded <-
-        posts.ls[[index]]$posts %>% tidyFBPageData()
+    if (!file.exists(str_replace(fbpage_caches.ls[index], "FBPage", "FBPageExpanded"))) {
+      posts_expanded.ls <-
+        readRDS(fbpage_caches.ls[index]) %$% posts %>% tidyFBPageData()
+      # Cache
+      saveRDS(posts_expanded.ls, str_replace(fbpage_caches.ls[index], "FBPage", "FBPageExpanded"))
     }
-    # Cache
-    saveRDS(posts.ls, "../cache/FBpage.rds")
   }
   
-  # Clean cache and return data
-  message("Done! Cleaning cache and returning clean data..")
-  file.remove("../cache/FBpage.rds")
-  posts.ls
+  # Get all expanded caches
+  fbpage_caches_expanded.ls <-
+    list.files("../cache", full.names = TRUE)[
+      str_detect(list.files("../cache"), "FBPageExpanded_.+.rds")]
+  
+  # Collect all caches together and return
+  map(
+    fbpage_caches_expanded.ls,
+    readRDS
+  )
 }
-
 
 ```
 
@@ -729,7 +741,7 @@ getAppAccessToken(
 
 errors <- 0
 
-rappler_posts.dt <-
+rappler_posts.ls <-
   try({
     cachedGetFBPage(
       page_name                   = "rapplerdotcom",
@@ -737,23 +749,23 @@ rappler_posts.dt <-
       timezone                    = "Asia/Manila",
       cache_interval              = "7 days",
       posts_per_page              = 5,
-      num_comments                = 10, 
-      num_attachments             = 10,
-      num_reactions               = 100,  
-      num_comments_likes          = 50, 
-      num_comments_comments       = 10,
-      num_comments_comments_likes = 50,
+      num_comments                = 100, 
+      num_attachments             = 100,
+      num_reactions               = 1000,  
+      num_comments_likes          = 500, 
+      num_comments_comments       = 50,
+      num_comments_comments_likes = 500,
       access_token                = fb.tkn
     )
   })
 
-while(class(rappler_posts.dt) == "try-error" & errors < 100) {
+while(class(rappler_posts.ls) == "try-error" & errors < 5) {
   
   # Increase error count if errored out
   errors <- errors + 1
-  message(errors, " errors made. ", 100 - errors, " errors left.")
+  message(errors, " errors made. ", 5 - errors, " errors left.")
   
-  rappler_posts.dt <-
+  rappler_posts.ls <-
     try({
       cachedGetFBPage(
         page_name                   = "rapplerdotcom",
@@ -761,18 +773,19 @@ while(class(rappler_posts.dt) == "try-error" & errors < 100) {
         timezone                    = "Asia/Manila",
         cache_interval              = "7 days",
         posts_per_page              = 5,
-        num_comments                = 10, 
-        num_attachments             = 10,
-        num_reactions               = 100,  
-        num_comments_likes          = 50, 
-        num_comments_comments       = 10,
-        num_comments_comments_likes = 50,
+        num_comments                = 100, 
+        num_attachments             = 100,
+        num_reactions               = 1000,  
+        num_comments_likes          = 500, 
+        num_comments_comments       = 50,
+        num_comments_comments_likes = 500,
         access_token                = fb.tkn
       )
     })
+
 }
 
-saveRDS(rappler_posts.dt, "../dta/03-rappler-posts.rds")
+saveRDS(rappler_posts.ls, "../dta/03-rappler-posts.rds")
 
 ```
 
