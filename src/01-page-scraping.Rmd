@@ -81,14 +81,14 @@ getAppAccessToken <- function(fb_app_id, fb_app_secret) {
       grant_type    = "client_credentials"
     )
   ) %>% 
-    content() %>% 
+    content(as = "text") %>% 
     str_replace("^access_token=", "") ->> fb.tkn 
 }
 
 callFBGraphAPI <- function(node = "", query = NULL, url = "", 
                            version = "v2.8", access_token = fb.tkn) {
-  # Function to generate a generic Facebook Graph API Call. Uses
-  # API v2.8 by default.
+  # Function to generate a generic Facebook Graph API Call and parse results. 
+  # Uses API v2.8 by default.
   #
   # Args:
   #   node:         the node to be pinged
@@ -98,11 +98,42 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
   #   access_token: the access token (not needed if fb.tkn is present)
   # 
   # Returns:
-  #   Unparsed resuts from the FB API call. 
+  #   Parsed resuts from the FB API call. 
   
   if (url != "") {
     result <- 
-      GET(url) 
+      GET(url)
+    
+    url %>% 
+      URLdecode() %>% 
+      str_extract(., "comments\\.limit\\([0123456789]+\\)") %>%
+      str_extract("[0123456789]+") %>% 
+      as.integer() -> 
+      original_number
+    
+    dropdown_ratio <- 1
+    
+    # Drop down query string by 50% as long as API returns 500 error
+    while (result$status_code == 500) {
+      message("Dropping down request due to API error 500...")
+      
+      dropdown_ratio <- dropdown_ratio * 0.5
+      
+      ceiling(original_number * dropdown_ratio) ->
+        new_number
+      
+      url %>% 
+        URLdecode() %>% 
+        str_replace(
+          "comments\\.limit\\([0123456789]+\\)",
+          paste0("comments.limit(", new_number, ")")
+        ) %>% 
+        URLencode() ->
+        new_url
+      
+      result <- 
+        GET(new_url)
+    }
   } else {
     result <-
       GET(
@@ -114,8 +145,26 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
   
   result %T>% {
     # Check for API call errors
-    if(.$status_code != 200) stop (paste0("API Call Error: ", .$status_code))
-  } 
+    if (.$status_code != 200) stop (paste0("API Call Error: ", .$status_code))
+  } %>% {
+    # Parse content
+    result %>% 
+      content(as = "text") %>% 
+      fromJSON() ->
+      result
+    
+    # Restore original next link
+    result$paging$`next` %>% 
+      URLdecode() %>% 
+      str_replace(
+        "comments\\.limit\\([0123456789]+\\)",
+        paste0("comments.limit(", original_number, ")")
+      ) %>% 
+      URLencode() ->
+      result$paging$`next`
+    
+    result
+  }
   
 }
 
@@ -248,14 +297,10 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf,
         ),
         limit = posts_per_page
       )
-    ) %>% 
-      content(as = "text") %>% 
-      fromJSON() -> 
+    ) -> 
       fbpage.cnt
   } else if (!is.na(next_link)) {
-    callFBGraphAPI(url = next_link) %>% 
-      content(as = "text") %>% 
-      fromJSON() ->
+    callFBGraphAPI(url = next_link) ->
       fbpage.cnt
   }
   
@@ -272,9 +317,7 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf,
          !is.null(fbpage.cnt$paging$`next`)) {
     
     # Grab new content
-    callFBGraphAPI(url = fbpage.cnt$paging$`next`) %>% 
-      content(as = "text") %>% 
-      fromJSON() ->
+    callFBGraphAPI(url = fbpage.cnt$paging$`next`) ->
       fbpage.cnt
     
     # Bind new content
@@ -747,7 +790,7 @@ rappler_posts.ls <-
       page_name                   = "rapplerdotcom",
       limit_timestamp             = "2016-01-01 00:00:00",
       timezone                    = "Asia/Manila",
-      cache_interval              = "7 days",
+      cache_interval              = "3 days",
       posts_per_page              = 5,
       num_comments                = 100, 
       num_attachments             = 100,
