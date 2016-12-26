@@ -58,6 +58,11 @@ We set up some scraping functions to help use extract information from a Faceboo
 
 ```{r Scraping Functions}
 
+na_null <- function(obj) {
+  # Helper function, returns NA of obj is null
+  ifelse(is.null(obj), NA, obj)
+}
+
 convertTimeStamp <- function(ts) {
   # Converts string timestamp ts into POSIXct format
   as.POSIXct(strptime(ts, "%Y-%m-%dT%H:%M:%S%z"))
@@ -115,12 +120,12 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
     
     # Drop down query string by 50% as long as API returns 500 error
     while (result$status_code == 500) {
-      message("Dropping down request due to API error 500...")
-      
       dropdown_ratio <- dropdown_ratio * 0.5
       
       ceiling(original_number * dropdown_ratio) ->
         new_number
+      
+      message("Dropping down request to ", new_number, " due to API error 500...")
       
       url %>% 
         URLdecode() %>% 
@@ -364,204 +369,241 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
     select(-reactions, -attachments, -comments) %>% 
     mutate(
       post_timestamp_utc = convertTimeStamp(created_time)
-    ) %>% 
-    select(
-      page_name    = page_name,
-      post_id      = id, 
-      post_message = message, 
-      post_timestamp_utc,
-      post_story   = story
-    ) -> posts.dt
+    ) %>% {
+      data_frame(
+        page_name    = .$page_name,
+        post_id      = .$id, 
+        post_message = .$message %>% na_null(), 
+        post_timestamp_utc = .$post_timestamp_utc %>% na_null(),
+        post_story   = .$story %>% na_null()
+      )
+    } -> posts.dt
   message(" Done!")
   
   # Get post attachments data 
   message("Grabbing post attachments data...", appendLF = FALSE)
-  posts.ls %>% 
-    select(id, attachments) %>% {
-      expandPaging(
-        object_ids  = .$id,
-        object_data = .$attachments$data,
-        object_next = .$attachments$paging$`next`
-      ) 
-    } %>% 
-    map_df(
-      function(attachments) {
-        data_frame(
-          object_id              = attachments$object_id,
-          attachment_title       = ifelse(
-            is.null(attachments$title), NA,
-            attachments$title
-          ),
-          attachment_type        = ifelse(
-            is.null(attachments$type), NA,
-            attachments$type
-          ),
-          attachment_target_url  = ifelse(
-            is.null(attachments$target$url), NA,
-            attachments$target$url
-          ),
-          attachment_media_url   = ifelse(
-            is.null(attachments$media$image$src), NA,
-            attachments$media$image$src
+  if (is.null(posts.ls$attachments)) {
+    posts_attachments.dt <- NA
+    message(" Does not exist. Skipped!")
+  } else {
+    posts.ls %>% 
+      select(id, attachments) %>% {
+        expandPaging(
+          object_ids  = .$id,
+          object_data = .$attachments$data,
+          object_next = .$attachments$paging$`next`
+        ) 
+      } %>% 
+      map_df(
+        function(attachments) {
+          data_frame(
+            object_id              = attachments$object_id,
+            attachment_title       = attachments$title %>% na_null(),
+            attachment_type        = attachments$type %>% na_null(),
+            attachment_target_url  = attachments$target$url %>% na_null(),
+            attachment_media_url   = attachments$media$image$src %>% na_null()
           )
-        )
-      }
-    )->
-    posts_attachments.dt
-  message(" Done!")
+        }
+      )->
+      posts_attachments.dt
+    message(" Done!")
+  }
   
   # Get post reactions data
   message("Grabbing post reactions data...", appendLF = FALSE)
-  posts.ls %>% 
-    select(id, reactions) %>% {
-      expandPaging(
-        object_ids  = .$id,
-        object_data = .$reactions$data,
-        object_next = .$reactions$paging$`next`
-      ) %>% 
-        bind_rows() %>% 
-        select(
-          object_id     = object_id,
-          reactor_id    = id,
-          reactor_name  = name,
-          reaction_type = type
-        )
-    } ->
-    posts_reactions.dt
-  message(" Done!")
+  if (is.null(posts.ls$reactions)) {
+    posts_reactions.dt <- NA
+    message(" Does not exist. Skipped!")
+  } else {
+    posts.ls %>% 
+      select(id, reactions) %>% {
+        if (is.null(.$id)) return(NULL)
+        expandPaging(
+          object_ids  = .$id,
+          object_data = .$reactions$data,
+          object_next = .$reactions$paging$`next`
+        ) %>% 
+          bind_rows() %>% 
+          select(
+            object_id     = object_id,
+            reactor_id    = id,
+            reactor_name  = name,
+            reaction_type = type
+          )
+      } ->
+      posts_reactions.dt
+    message(" Done!")
+  }
   
   # Get post comments raw data
   message("Grabbing post comments raw data...", appendLF = FALSE)
-  posts.ls %>% 
-    select(id, comments) %>% {
-      expandPaging(
-        object_ids  = .$id,
-        object_data = .$comments$data,
-        object_next = .$comments$paging$`next`
-      ) 
-    } ->
-    posts_comments.ls
-  message(" Done!")
-  
-  # Get post comments data
-  message("Grabbing post comments processed data...", appendLF = FALSE)
-  posts_comments.ls %>% 
-    map_df(
-      function(comments) {
-        if (is.null(comments$id)) return(NULL)
-        data_frame(
-          object_id             = comments$object_id,
-          comment_id            = comments$id,
-          comment_timestamp_utc = convertTimeStamp(comments$created_time),
-          comment_message       = comments$message,
-          commenter_name        = comments$from$name,
-          commenter_id          = comments$from$id
-        ) 
-      }
-    ) -> posts_comments.dt
-  message(" Done!")
-  
-  # Get post comments likes data
-  message("Grabbing post comments reactions data...", appendLF = FALSE)
-  posts_comments.ls %>% 
-    map(
-      function(comments) {
-        list(
-          id    = comments$id,
-          likes = comments$likes
-        )
-      }
-    ) %>% 
-    map(
-      function(comments) {
+  if (is.null(posts.ls$comments)) {
+    posts_comments.dt <- NA
+    posts_comments_likes.dt <- NA
+    posts_comments_comments.dt <- NA 
+    posts_comments_comments_likes.dt <- NA
+    message(" Does not exist. Skipped!")
+  } else {
+    posts.ls %>% 
+      select(id, comments) %>% {
         expandPaging(
-          object_ids  = comments$id,
-          object_data = comments$likes$data,
-          object_next = comments$likes$paging$`next`
+          object_ids  = .$id,
+          object_data = .$comments$data,
+          object_next = .$comments$paging$`next`
         ) 
-      }
-    ) %>% 
-    flatten() %>% 
-    bind_rows() %>% 
-    select(
-      object_id   = object_id,
-      liker_id    = id,
-      liker_name  = name
-    ) ->
-    posts_comments_likes.dt
-  message(" Done!")
+      } ->
+      posts_comments.ls
+    message(" Done!")
+    
+    # Get post comments data
+    message("Grabbing post comments processed data...", appendLF = FALSE)
+    posts_comments.ls %>% 
+      map_df(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          data_frame(
+            object_id             = comments$object_id,
+            comment_id            = comments$id,
+            comment_timestamp_utc = convertTimeStamp(comments$created_time),
+            comment_message       = comments$message,
+            commenter_name        = comments$from$name,
+            commenter_id          = comments$from$id
+          ) 
+        }
+      ) -> posts_comments.dt
+    message(" Done!")
+    
+    # Get post comments likes data
+    message("Grabbing post comments reactions data...", appendLF = FALSE)
+    posts_comments.ls %>% 
+      map(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          list(
+            id    = comments$id,
+            likes = comments$likes
+          )
+        }
+      ) %>% 
+      map(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          expandPaging(
+            object_ids  = comments$id,
+            object_data = comments$likes$data,
+            object_next = comments$likes$paging$`next`
+          ) 
+        }
+      ) %>% 
+      flatten() %>% 
+      bind_rows() %>% {
+        if (is.null(.) | nrow(.) == 0) {
+          return(NA)
+        } else {
+          return(
+            select(
+              .,
+              object_id   = object_id,
+              liker_id    = id,
+              liker_name  = name
+            )
+          )
+        }
+      } ->
+      posts_comments_likes.dt
+    message(" Done!")
+    
+    # Get post comment replies raw data
+    message("Grabbing post comments replies raw data...", appendLF = FALSE)
+    posts_comments.ls %>% 
+      map(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          list(
+            id       = comments$id,
+            comments = comments$comments
+          )
+        }
+      ) %>% 
+      map(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          expandPaging(
+            object_ids  = comments$id,
+            object_data = comments$comments$data,
+            object_next = comments$comments$paging$`next`
+          ) 
+        }
+      ) %>% 
+      flatten() ->
+      posts_comments_comments.ls
+    message(" Done!")
   
-  # Get post comment replies raw data
-  message("Grabbing post comments replies raw data...", appendLF = FALSE)
-  posts_comments.ls %>% 
-    map(
-      function(comments) {
-        list(
-          id       = comments$id,
-          comments = comments$comments
-        )
-      }
-    ) %>% 
-    map(
-      function(comments) {
-        expandPaging(
-          object_ids  = comments$id,
-          object_data = comments$comments$data,
-          object_next = comments$comments$paging$`next`
-        ) 
-      }
-    ) %>% 
-    flatten() ->
-    posts_comments_comments.ls
-  message(" Done!")
-  
-  # Get post comment replies data
-  message("Grabbing post comments replies processed data...", appendLF = FALSE)
-  posts_comments_comments.ls %>% 
-    map_df(
-      function(comments) {
-        if (is.null(comments$id)) return(NULL)
-        data_frame(
-          object_id             = comments$object_id,
-          comment_id            = comments$id,
-          comment_timestamp_utc = convertTimeStamp(comments$created_time),
-          comment_message       = comments$message,
-          commenter_name        = comments$from$name,
-          commenter_id          = comments$from$id
-        ) 
-      }
-    ) -> posts_comments_comments.dt
-  message(" Done!")
-  
-  # Get post comment replies reactions data
-  message("Grabbing post comments replies reactions data...", appendLF = FALSE)
-  posts_comments_comments.ls %>% 
-    map(
-      function(comments) {
-        list(
-          id    = comments$id,
-          likes = comments$likes
-        )
-      }
-    ) %>% 
-    map(
-      function(comments) {
-        expandPaging(
-          object_ids  = comments$id,
-          object_data = comments$likes$data,
-          object_next = comments$likes$paging$`next`
-        ) 
-      }
-    ) %>% 
-    flatten() %>% 
-    bind_rows() %>% 
-    select(
-      object_id   = object_id,
-      liker_id    = id,
-      liker_name  = name
-    ) ->
-    posts_comments_comments_likes.dt
-  message(" Done!")
+    # Get post comment replies data
+    message("Grabbing post comments replies processed data...", appendLF = FALSE)
+    posts_comments_comments.ls %>% 
+      map_df(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          data_frame(
+            object_id             = comments$object_id,
+            comment_id            = comments$id,
+            comment_timestamp_utc = convertTimeStamp(comments$created_time),
+            comment_message       = comments$message,
+            commenter_name        = comments$from$name,
+            commenter_id          = comments$from$id
+          ) 
+        }
+      ) %>% {
+        if (is.null(.) | nrow(.) == 0) {
+          return(NA)
+        } else {
+          return(.)
+        }
+      } -> posts_comments_comments.dt
+    message(" Done!")
+    
+    # Get post comment replies reactions data
+    message("Grabbing post comments replies reactions data...", appendLF = FALSE)
+    posts_comments_comments.ls %>% 
+      map(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          list(
+            id    = comments$id,
+            likes = comments$likes
+          )
+        }
+      ) %>% 
+      map(
+        function(comments) {
+          if (is.null(comments$id)) return(NULL)
+          expandPaging(
+            object_ids  = comments$id,
+            object_data = comments$likes$data,
+            object_next = comments$likes$paging$`next`
+          ) 
+        }
+      ) %>% 
+      flatten() %>% 
+      bind_rows() %>% {
+        if (is.null(.) | nrow(.) == 0) {
+          return(NA)
+        } else {
+          return(
+            select(
+              .,
+              object_id   = object_id,
+              liker_id    = id,
+              liker_name  = name
+            )
+          )
+        }
+      } ->
+      posts_comments_comments_likes.dt
+    message(" Done!")
+    
+  }
   
   message("Returning data...")
   list(
