@@ -191,11 +191,12 @@ load("../bin/pushover_auth.rda")
 
 pushover(
   title = "R Execution Completed",
-  message = ifelse(class(rappler_posts.ls) == "try-error", rappler_posts.ls[[1]], "Success"),
   priority = 1,
   user = pushover_user_key,
   app = pushover_app_key
 )
 
 ```
+
+Now that we have collected the information, we pass through each file and process it further into just a list of data frames. 
 
