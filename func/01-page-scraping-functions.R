@@ -60,10 +60,13 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
       GET(url)
     
     url %>% 
-      str_extract(., "comments\\.limit%28[0123456789]%29") %>%
-      str_extract("[0123456789]+") %>% 
+      URLdecode() %>% 
+      str_extract(., "comments\\.limit\\([0123456789]+\\)") %>%
+      str_replace_all("comments\\.limit\\(|\\)", "") %>% 
       as.integer() -> 
       original_number
+    
+    cat(original_number)
     
     dropdown_ratio <- 1
     
@@ -77,10 +80,12 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
       message("Dropping down request to ", new_number, " due to API error 500...")
       
       url %>% 
+        URLdecode() %>% 
         str_replace(
-          "comments\\.limit%28[0123456789]+%29",
+          "comments\\.limit\\([0123456789]+\\)",
           paste0("comments.limit(", new_number, ")")
-        ) ->
+        ) %>% 
+        URLencode() ->
         new_url
       
       result <- 
@@ -100,25 +105,23 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
     if (.$status_code != 200) stop (paste0("API Call Error: ", .$status_code))
   } %>% {
     # Parse content
-    result %>% 
-      content(as = "text") %>% 
+    content(., as = "text") %>% 
       fromJSON() ->
       result
     
+    # Restore original next link
     if (url != "") {
-      # Restore original next link
-
       result$paging$`next` %>%
+        URLdecode() %>% 
         str_replace(
-          "comments\\.limit%28[0123456789]+%29",
-          paste0("comments.limit%28", original_number, "%29")
-        ) ->
+          "comments\\.limit\\([0123456789]+\\)",
+          paste0("comments.limit(", original_number, ")")
+        ) %>% 
+        URLencode() ->
         result$paging$`next`
-      
     }
     
     result
-
   }
 }
 
