@@ -168,8 +168,8 @@ try({
             page_name                   = newspage,
             limit_timestamp             = "2016-01-01 00:00:00",
             timezone                    = "Asia/Manila",
-            cache_interval              = "3 days",
-            posts_per_page              = 2,
+            cache_interval              = "1 day",
+            posts_per_page              = 5,
             num_comments                = 100, 
             num_attachments             = 100,
             num_reactions               = 1000,  
@@ -191,6 +191,7 @@ load("../bin/pushover_auth.rda")
 
 pushover(
   title = "R Execution Completed",
+  message = "adhoc01",
   priority = 1,
   user = pushover_user_key,
   app = pushover_app_key
