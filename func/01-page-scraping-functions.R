@@ -157,8 +157,8 @@ expandPaging <- function(object_ids, object_data, object_next) {
         
         object_next %>% 
           URLdecode() %>% 
-          str_extract("\\.limit\\([0-9]+\\)|limit=[0-9]+") %>%
-          str_replace_all("\\.limit\\(|\\)|limit=", "") %>% 
+          str_extract("\\.limit\\([0-9]+\\)") %>%
+          str_replace_all("\\.limit\\(|\\)", "") %>% 
           as.integer() -> 
           original_number
         
@@ -174,10 +174,6 @@ expandPaging <- function(object_ids, object_data, object_next) {
             "\\.limit\\([0-9]+\\)", 
             paste0(".limit(", original_number * 2, ")")
           ) %>% 
-          str_replace(
-            "limit=[0-9]+",
-            paste0("limit=", original_number * 10)
-          ) %>%
           URLencode() ->
           object_next 
         
@@ -369,10 +365,10 @@ tidyFBPageData <- function(posts.ls, access_token = fb.tkn) {
         function(attachments) {
           data_frame(
             object_id              = attachments$object_id,
-            attachment_title       = attachments$title %>% getNAforNULL(),
-            attachment_type        = attachments$type %>% getNAforNULL(),
+            attachment_title       = attachments$title      %>% getNAforNULL(),
+            attachment_type        = attachments$type       %>% getNAforNULL(),
             attachment_target_url  = attachments$target$url %>% getNAforNULL(),
-            attachment_media_url   = attachments$media$url %>% getNAforNULL()
+            attachment_media_url   = attachments$media$url  %>% getNAforNULL()
           )
         }
       )->

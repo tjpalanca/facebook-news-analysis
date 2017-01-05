@@ -159,7 +159,7 @@ We then gather all the data
 
 try({
   walk(
-    newspages.ls[6:length(newspages.ls)],
+    newspages.ls[1:5],
     function(newspage) {
       # only run if file does not exist
       if (!file.exists(paste0("../dta/03-fbpage-", newspage, ".rds"))) {
@@ -168,14 +168,14 @@ try({
             page_name                   = newspage,
             limit_timestamp             = "2016-01-01 00:00:00",
             timezone                    = "Asia/Manila",
-            cache_interval              = "2 days",
-            posts_per_page              = 5,
+            cache_interval              = "1 day",
+            posts_per_page              = 1,
             num_comments                = 100, 
             num_attachments             = 100,
-            num_reactions               = 1000,  
-            num_comments_likes          = 500, 
-            num_comments_comments       = 50,
-            num_comments_comments_likes = 500,
+            num_reactions               = 2000,  
+            num_comments_likes          = 2000, 
+            num_comments_comments       = 25,
+            num_comments_comments_likes = 2000,
             access_token                = fb.tkn
           )
         
