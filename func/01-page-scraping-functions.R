@@ -260,7 +260,7 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf,
   }
   
   # Raise exception if no page_name specified
-  if (is.null(page_name) & is.null(next_link)) stop("No page name specified!")
+  if (is.null(page_name)) stop("No page name specified!")
   
   # Make initial API call
   if (is.na(next_link)) {
