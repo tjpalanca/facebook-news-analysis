@@ -56,17 +56,14 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
   #   Parsed resuts from the FB API call. 
   
   if (url != "") {
-    result <- 
-      GET(url)
+    result <- GET(url)
     
     url %>% 
       URLdecode() %>% 
-      str_extract(., "comments\\.limit\\([0123456789]+\\)") %>%
-      str_replace_all("comments\\.limit\\(|\\)", "") %>% 
+      str_extract("\\.limit\\([0-9]+\\)") %>%
+      str_replace_all("\\.limit\\(|\\)", "") %>% 
       as.integer() -> 
       original_number
-    
-    cat(original_number)
     
     dropdown_ratio <- 1
     
@@ -82,8 +79,8 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
       url %>% 
         URLdecode() %>% 
         str_replace(
-          "comments\\.limit\\([0123456789]+\\)",
-          paste0("comments.limit(", new_number, ")")
+          "\\.limit\\([0-9]+\\)",
+          paste0(".limit(", new_number, ")")
         ) %>% 
         URLencode() ->
         new_url
@@ -110,12 +107,12 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
       result
     
     # Restore original next link
-    if (url != "") {
+    if (url != "" & !is.null(result$paging$`next`)) {
       result$paging$`next` %>%
         URLdecode() %>% 
         str_replace(
-          "comments\\.limit\\([0123456789]+\\)",
-          paste0("comments.limit(", original_number, ")")
+          "\\.limit\\([0-9]+\\)",
+          paste0(".limit(", original_number, ")")
         ) %>% 
         URLencode() ->
         result$paging$`next`
@@ -155,14 +152,36 @@ expandPaging <- function(object_ids, object_data, object_next) {
       
       data <- object_data
       
+      if (ifelse(is.null(object_next), FALSE, 
+                 ifelse(is.na(object_next), FALSE, TRUE))) {
+        
+        object_next %>% 
+          URLdecode() %>% 
+          str_extract("\\.limit\\([0-9]+\\)|limit=[0-9]+") %>%
+          str_replace_all("\\.limit\\(|\\)|limit=", "") %>% 
+          as.integer() -> 
+          original_number
+      
+      }
+      
       while(ifelse(is.null(object_next), FALSE, 
                    ifelse(is.na(object_next), FALSE, TRUE))) {
         message(".", appendLF = FALSE)
         
-        GET(object_next) %>% 
-          content(as = "text") %>% 
-          fromJSON() ->
-          content
+        object_next %>% 
+          URLdecode() %>% 
+          str_replace(
+            "\\.limit\\([0-9]+\\)", 
+            paste0(".limit(", original_number * 2, ")")
+          ) %>% 
+          str_replace(
+            "limit=[0-9]+",
+            paste0("limit=", original_number * 10)
+          ) %>%
+          URLencode() ->
+          object_next 
+          
+        callFBGraphAPI(url = object_next) -> content
         
         if(length(content$data) > 0) {
           rbind.pages(list(data, content$data)) -> data

@@ -155,11 +155,13 @@ We then gather all the data
 
 ```{r Data Gathering, message = FALSE}
 
+options(error=traceback)
+
 # Download all new
 
-try({
+
   walk(
-    newspages.ls,
+    newspages.ls[1:5],
     function(newspage) {
       # only run if file does not exist
       if (!file.exists(paste0("../dta/03-fbpage-", newspage, ".rds"))) {
@@ -169,7 +171,7 @@ try({
             limit_timestamp             = "2016-01-01 00:00:00",
             timezone                    = "Asia/Manila",
             cache_interval              = "1 day",
-            posts_per_page              = 5,
+            posts_per_page              = 3,
             num_comments                = 100, 
             num_attachments             = 100,
             num_reactions               = 1000,  
@@ -185,7 +187,7 @@ try({
       }
     }
   )
-})
+
 
 load("../bin/pushover_auth.rda")
 
