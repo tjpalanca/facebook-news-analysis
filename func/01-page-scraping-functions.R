@@ -23,7 +23,7 @@ getAppAccessToken <- function(fb_app_id, fb_app_secret) {
   #
   # Args:
   #   fb_app_id:      character scalar containing the Facebook App ID
-  #   fb_app_secret:  character scalar containing the Fabebook App Secret
+  #   fb_app_secret:  character scalar containing the Facebook App Secret
   #
   # Returns:
   #   App Access Token in fb.tkn (do not assign)
@@ -53,8 +53,11 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
   #   access_token: the access token (not needed if fb.tkn is present)
   # 
   # Returns:
-  #   Parsed resuts from the FB API call. 
+  #   Parsed resuts from the FB API call.
   
+  url ->> url_current
+  
+  # Query string out until satisfactory result or error
   if (url != "") {
     result <- GET(url)
     
@@ -69,10 +72,9 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
     
     # Drop down query string by 50% as long as API returns 500 error
     while (result$status_code == 500) {
-      dropdown_ratio <- dropdown_ratio * 0.5
+      dropdown_ratio * 0.5 -> dropdown_ratio 
       
-      ceiling(original_number * dropdown_ratio) ->
-        new_number
+      ceiling(original_number * dropdown_ratio) -> new_number
       
       message("Dropping down request to ", new_number, " due to API error 500...")
       
@@ -85,40 +87,51 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
         URLencode() ->
         new_url
       
-      result <- 
-        GET(new_url)
+      GET(new_url) -> result
+      
     }
   } else {
-    result <-
-      GET(
-        url   = paste0("https://graph.facebook.com/", version, "/"),
-        path  = node,
-        query = append(list(access_token = access_token), query)
-      )
+    GET(
+      url   = paste0("https://graph.facebook.com/", version, "/"),
+      path  = node,
+      query = append(list(access_token = access_token), query)
+    ) -> result
   }
   
   result %T>% {
     # Check for API call errors
-    if (.$status_code != 200) stop (paste0("API Call Error: ", .$status_code))
-  } %>% {
-    # Parse content
-    content(., as = "text") %>% 
-      fromJSON() ->
-      result
-    
-    # Restore original next link
-    if (url != "" & !is.null(result$paging$`next`)) {
-      result$paging$`next` %>%
-        URLdecode() %>% 
-        str_replace(
-          "\\.limit\\([0-9]+\\)",
-          paste0(".limit(", original_number, ")")
-        ) %>% 
-        URLencode() ->
-        result$paging$`next`
+    if (!(.$status_code %in% c(200))) {
+      
+      # Check for allowable errors for error 400
+      if (.$status_code == 400) {
+        # Get error code
+        code <- . %>% content(as = "text") %>% fromJSON() %$% error %$% code
+        # Code 100: Design enforced comments limit
+        if (code == 100) return(NULL)
+      } else {
+        stop (paste0("API Call Error: ", .$status_code))
+      }
+    } else {
+      
+      # Parse content
+      content(., as = "text") %>% 
+        fromJSON() ->
+        result
+      
+      # Restore original next link
+      if (url != "" & !is.null(result$paging$`next`)) {
+        result$paging$`next` %>%
+          URLdecode() %>% 
+          str_replace(
+            "\\.limit\\([0-9]+\\)",
+            paste0(".limit(", original_number, ")")
+          ) %>% 
+          URLencode() ->
+          result$paging$`next`
+      }
+      
+      return(result)
     }
-    
-    result
   }
 }
 
@@ -157,8 +170,8 @@ expandPaging <- function(object_ids, object_data, object_next) {
         
         object_next %>% 
           URLdecode() %>% 
-          str_extract("\\.limit\\([0-9]+\\)") %>%
-          str_replace_all("\\.limit\\(|\\)", "") %>% 
+          str_extract("comments\\.limit\\([0-9]+\\)") %>%
+          str_replace_all("comments\\.limit\\(|\\)", "") %>% 
           as.integer() -> 
           original_number
         
@@ -171,11 +184,13 @@ expandPaging <- function(object_ids, object_data, object_next) {
         object_next %>% 
           URLdecode() %>% 
           str_replace(
-            "\\.limit\\([0-9]+\\)", 
-            paste0(".limit(", original_number * 2, ")")
+            "comments\\.limit\\([0-9]+\\)", 
+            paste0("comments.limit(", original_number * 2, ")")
           ) %>% 
           URLencode() ->
           object_next 
+        
+        object_next ->> a
         
         callFBGraphAPI(url = object_next) -> content
         
@@ -269,11 +284,9 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf,
         ),
         limit = posts_per_page
       )
-    ) -> 
-      fbpage.cnt
+    ) -> fbpage.cnt
   } else if (!is.na(next_link)) {
-    callFBGraphAPI(url = next_link) ->
-      fbpage.cnt
+    callFBGraphAPI(url = next_link) -> fbpage.cnt
   }
   
   # Extract data and limit comparison data
@@ -289,8 +302,7 @@ getFBPage <- function(page_name = NULL, next_link = NULL, limit_posts = Inf,
          !is.null(fbpage.cnt$paging$`next`)) {
     
     # Grab new content
-    callFBGraphAPI(url = fbpage.cnt$paging$`next`) ->
-      fbpage.cnt
+    callFBGraphAPI(url = fbpage.cnt$paging$`next`) -> fbpage.cnt
     
     # Bind new content
     rbind.pages(pages = list(fbposts.ls, fbpage.cnt$data)) -> fbposts.ls
@@ -645,7 +657,7 @@ cachedGetFBPage <- function(page_name, limit_timestamp,
       posts.ls <- NULL
     }
   } else {
-    message("Cache does not exist: Intiializing cache")
+    message("Cache does not exist: Initializing cache")
     # If cached object does not exist, initialize posts.ls
     posts.ls <- NULL
   }
