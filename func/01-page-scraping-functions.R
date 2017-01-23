@@ -105,7 +105,7 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
       # Check for allowable errors for error 400
       if (.$status_code == 400) {
         # Get error code
-        code <- . %>% content(as = "text") %>% fromJSON() %$% error %$% code
+        code <- content(., as = "text") %>% fromJSON() %$% error %$% code
         # Code 100: Design enforced comments limit
         if (code == 100) return(NULL)
       } else {
