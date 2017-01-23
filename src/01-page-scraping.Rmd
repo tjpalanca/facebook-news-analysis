@@ -43,10 +43,25 @@ suppressPackageStartupMessages({
   library(DT)          # DataTables JS Library
   
   library(pushoverr)   # Push notifications upon completion of long-running processes
+  library(DBI)         # Database management
+  library(RSQLite)     # SQLite Databases
 })
 
 # Set proper working directory
 if(interactive() & !str_detect(getwd(), "src")) setwd("src")
+
+# Load Pushover credentials
+load("../bin/pushover_auth.rda")
+
+pushNotification <- function() {
+  pushover(
+    title = "R Execution Completed",
+    url = "http://adhoc01.tjpalanca.com",
+    message = "adhoc01.tjpalanca.com",
+    user = pushover_user_key,
+    app = pushover_app_key
+  )
+}
 
 ```
 
@@ -159,7 +174,7 @@ We then gather all the data
 
 try({
   walk(
-    newspages.ls[1:5],
+    newspages.ls,
     function(newspage) {
       # only run if file does not exist
       if (!file.exists(paste0("../dta/03-fbpage-", newspage, ".rds"))) {
@@ -169,7 +184,7 @@ try({
             limit_timestamp             = "2016-01-01 00:00:00",
             timezone                    = "Asia/Manila",
             cache_interval              = "1 day",
-            posts_per_page              = 1,
+            posts_per_page              = 5,
             num_comments                = 100, 
             num_attachments             = 100,
             num_reactions               = 2000,  
@@ -187,17 +202,91 @@ try({
   )
 })
 
-load("../bin/pushover_auth.rda")
-
-pushover(
-  title = "R Execution Completed",
-  message = "adhoc03",
-  priority = 1,
-  user = pushover_user_key,
-  app = pushover_app_key
-)
+pushNotification()
 
 ```
 
-Now that we have collected the information, we pass through each file and process it further into just a list of data frames. 
+Now that we have collected the information, we create a SQLite database so we can process it outside of memory.
+
+```{r Database Creation}
+
+# Create database
+fbpages.sqlite <- src_sqlite(path = "../dta/03-fbpages.sqlite",
+                             create = TRUE)
+
+```
+
+We then parse through each of the data files and load them into the SQLite database.
+
+```{r Database Storage}
+
+# Get all cache files
+fbpage_data.ls <- 
+  list.files("../dta", full.names = TRUE) %>% {
+    .[str_detect(., "/03-fbpage-.*\\.rds")]
+  } %>% rev()
+
+# Walk through each cache file
+
+walk(
+  fbpage_data.ls,
+  function(data_path) {
+    # Read in data
+    message("Processing ", data_path, "...")
+    data <- readRDS(data_path)
+    
+    # Walk through each shard
+    walk(
+      1:length(data),
+      function(i) {
+        # Lood shard
+        message("Shard ", i, ": ", appendLF = FALSE)
+        shard <- data[[i]]
+        
+        # Walk through each element of shard
+        walk(
+          c(
+            "posts", "posts_attachments", "posts_reactions",
+            "posts_comments", "posts_comments_likes", 
+            "posts_comments_comments", "posts_comments_comments_likes"
+          ),
+          function(name) {
+            # If element exists, write into appropriate data frame
+            if (is.data.frame(shard[[name]])) {
+              message(name, " ", appendLF = FALSE)
+              fbpages.sqlite$con %>% 
+                db_insert_into(
+                  table  = name,
+                  values = shard[[name]],
+                  append = TRUE
+                )
+            }
+          }
+        )
+        
+        # Remove shard from memory
+        rm(shard)
+        message("Done!")
+      }
+    )
+    
+    # Remove data from memory
+    rm(data)
+    message("Done processing ", data_path, "!")
+    
+    # Rename file to indicate done
+    file.rename(
+      from = data_path,
+      to = str_replace(data_path, "03-fbpage-", "03-fbpageDONE-")
+    )
+  }
+)
+
+pushNotification()
+
+# TODO: sqlite optimizations (indices, etc.)
+
+
+
+```
 
