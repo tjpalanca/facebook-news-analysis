@@ -4,3 +4,5 @@
 .Ruserdata
 bin/*
 .DS_Store
+03-fbpage-*.rds
+*.sqlite
