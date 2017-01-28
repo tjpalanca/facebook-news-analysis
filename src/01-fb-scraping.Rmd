@@ -1,16 +1,8 @@
 ---
-title: "Facebook Page Scraping"
-author: "TJ Palanca"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: 
-  html_document:
-    toc: true
-    toc_float: true
-    theme: "lumen"
-    highlight: "tango"
-    code_folding: hide
-    self_contained: false
-    lib_dir: libs
+title:  "Facebook Page Scraping"
+author: "Troy James Palanca // mail@tjpalanca.com"
+date:   "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
 ---
 
 ## Background
@@ -23,7 +15,7 @@ In order to be able to analyze news articles on Facebook, we need a method to ex
 
 We load the libraries necessary to perform the extraction:
 
-```{r setup}
+```{r}
 
 suppressPackageStartupMessages({
   library(httr)      # Making API calls
@@ -42,9 +34,7 @@ suppressPackageStartupMessages({
   library(htmlwidgets) # Javascript bindings
   library(DT)          # DataTables JS Library
   
-  library(pushoverr)   # Push notifications upon completion of long-running processes
-  library(DBI)         # Database management
-  library(RSQLite)     # SQLite Databases
+  library(pushoverr)   # Push notifications
 })
 
 # Set proper working directory
@@ -53,9 +43,9 @@ if(interactive() & !str_detect(getwd(), "src")) setwd("src")
 # Load Pushover credentials
 load("../bin/pushover_auth.rda")
 
-pushNotification <- function() {
+pushNotification <- function(text = "R Execution Completed") {
   pushover(
-    title = "R Execution Completed",
+    title = text,
     url = "http://adhoc01.tjpalanca.com",
     message = "adhoc01.tjpalanca.com",
     user = pushover_user_key,
@@ -78,6 +68,8 @@ source("../func/01-page-scraping-functions.R")
 ```
 
 ### Execution
+
+#### Top 100 Facebook Pages
 
 In order to prevent bias in selecting the pages to be scraped, we rely on [Socialbaker's Ranking of Top 100 Media Facebook Pages in the Philippines by Total Likes](https://www.socialbakers.com/statistics/facebook/pages/total/philippines/media/page-1-5/).
 
@@ -151,6 +143,8 @@ print(newspages.ls)
 
 ```
 
+#### Scraping
+
 In order to start collecting information, we authenticate with a Facebook App Access Token Since page posts are public, we do not need a user access token to gather the posts and other information.
 
 ```{r Authentication}
@@ -166,7 +160,7 @@ getAppAccessToken(
 
 ```
 
-We then gather all the data 
+We then gather all the data.
 
 ```{r Data Gathering, message = FALSE}
 
@@ -177,7 +171,8 @@ try({
     newspages.ls,
     function(newspage) {
       # only run if file does not exist
-      if (!file.exists(paste0("../dta/03-fbpage-", newspage, ".rds"))) {
+      if (!file.exists(paste0("../dta/03-fbpage-", newspage, ".rds")) &
+          !file.exists(paste0("../dta/03-fbpageDONE-", newspage, ".rds"))) {
         posts.ls <-
           cachedGetFBPage(
             page_name                   = newspage,
@@ -194,7 +189,8 @@ try({
             access_token                = fb.tkn
           )
         
-        saveRDS(object = posts.ls, file = paste0("../dta/03-fbpage-", newspage, ".rds"))
+        saveRDS(object = posts.ls, 
+                file = paste0("../dta/03-fbpage-", newspage, ".rds"))
         
         rm(posts.ls)
       }
@@ -206,87 +202,85 @@ pushNotification()
 
 ```
 
+#### Storage
+
 Now that we have collected the information, we create a SQLite database so we can process it outside of memory.
 
-```{r Database Creation}
-
-# Create database
-fbpages.sqlite <- src_sqlite(path = "../dta/03-fbpages.sqlite",
-                             create = TRUE)
-
-```
-
-We then parse through each of the data files and load them into the SQLite database.
+We then parse through each of the data files and load them into memory.
 
 ```{r Database Storage}
 
 # Get all cache files
-fbpage_data.ls <- 
+fbpage_data.ls <-
   list.files("../dta", full.names = TRUE) %>% {
     .[str_detect(., "/03-fbpage-.*\\.rds")]
-  } %>% rev()
+  }
+
+# Initialize variables
+posts.dt                         <- data_frame()
+posts_attachments.dt             <- data_frame()
+posts_reactions.dt               <- data_frame()
+posts_comments.dt                <- data_frame()
+posts_comments_likes.dt          <- data_frame()
+posts_comments_comments.dt       <- data_frame()
+posts_comments_comments_likes.dt <- data_frame()
 
 # Walk through each cache file
-
 walk(
   fbpage_data.ls,
   function(data_path) {
     # Read in data
+    pushNotification(paste0("Processing ", data_path, "..."))
     message("Processing ", data_path, "...")
     data <- readRDS(data_path)
     
-    # Walk through each shard
+    # Combine data frames in each shard
     walk(
-      1:length(data),
-      function(i) {
-        # Lood shard
-        message("Shard ", i, ": ", appendLF = FALSE)
-        shard <- data[[i]]
-        
-        # Walk through each element of shard
-        walk(
-          c(
-            "posts", "posts_attachments", "posts_reactions",
-            "posts_comments", "posts_comments_likes", 
-            "posts_comments_comments", "posts_comments_comments_likes"
-          ),
-          function(name) {
-            # If element exists, write into appropriate data frame
-            if (is.data.frame(shard[[name]])) {
-              message(name, " ", appendLF = FALSE)
-              fbpages.sqlite$con %>% 
-                db_insert_into(
-                  table  = name,
-                  values = shard[[name]],
-                  append = TRUE
-                )
-            }
-          }
-        )
-        
-        # Remove shard from memory
-        rm(shard)
-        message("Done!")
+      data,
+      function(shard) {
+        if (is.data.frame(shard$posts)) {
+          posts.dt %>%
+            bind_rows(shard$posts) ->>
+            posts.dt
+        }
+        if (is.data.frame(shard$posts_attachments)) {
+          posts_attachments.dt %>%
+            bind_rows(shard$posts_attachments) ->>
+            posts_attachments.dt
+        }
+        if (is.data.frame(shard$posts_reactions)) {
+          posts_reactions.dt %>%
+            bind_rows(shard$posts_reactions) ->>
+            posts_reactions.dt
+        }
+        if (is.data.frame(shard$posts_comments)) {
+          posts_comments.dt %>%
+            bind_rows(shard$posts_comments) ->>
+            posts_comments.dt
+        }
+        if (is.data.frame(shard$posts_comments_likes)) {
+          posts_comments_likes.dt %>%
+            bind_rows(shard$posts_comments_likes) ->>
+            posts_comments_likes.dt
+        }
+        if (is.data.frame(shard$posts_comments_comments)) {
+          posts_comments_comments.dt %>%
+            bind_rows(shard$posts_comments_comments) ->>
+            posts_comments_comments.dt
+        }
+        if (is.data.frame(shard$posts_comments_comments_likes)) {
+          posts_comments_comments_likes.dt %>%
+            bind_rows(shard$posts_comments_comments_likes) ->>
+            posts_comments_comments_likes.dt
+        }
       }
     )
-    
+
     # Remove data from memory
     rm(data)
     message("Done processing ", data_path, "!")
-    
-    # Rename file to indicate done
-    file.rename(
-      from = data_path,
-      to = str_replace(data_path, "03-fbpage-", "03-fbpageDONE-")
-    )
   }
 )
-
-pushNotification()
-
-# TODO: sqlite optimizations (indices, etc.)
-
-
-
+  
 ```
 
