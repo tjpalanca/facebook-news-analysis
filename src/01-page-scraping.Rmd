@@ -8,7 +8,7 @@ output:
     toc_float: true
     theme: "lumen"
     highlight: "tango"
-    code_folding: hide
+    code_folding: show
     self_contained: false
     lib_dir: libs
 ---
@@ -53,9 +53,9 @@ if(interactive() & !str_detect(getwd(), "src")) setwd("src")
 # Load Pushover credentials
 load("../bin/pushover_auth.rda")
 
-pushNotification <- function() {
+pushNotification <- function(text = "Execution Completed") {
   pushover(
-    title = "R Execution Completed",
+    title = text,
     url = "http://adhoc01.tjpalanca.com",
     message = "adhoc01.tjpalanca.com",
     user = pushover_user_key,
@@ -78,6 +78,8 @@ source("../func/01-page-scraping-functions.R")
 ```
 
 ### Execution
+
+#### Sample Selection
 
 In order to prevent bias in selecting the pages to be scraped, we rely on [Socialbaker's Ranking of Top 100 Media Facebook Pages in the Philippines by Total Likes](https://www.socialbakers.com/statistics/facebook/pages/total/philippines/media/page-1-5/).
 
@@ -132,10 +134,17 @@ map_df(
   }
 ) -> top_100_fbpages.dt
 
+# Manual correction for page that changed name
+top_100_fbpages.dt$page_name[
+  top_100_fbpages.dt$page_name == "news5Features"
+  ] <- "news5aksyon"
+
 ```
 
 ```{r Display Top 100 Facebook Pages}
+
 datatable(top_100_fbpages.dt)
+
 ```
 
 We want to isolate the pages that are classified as news sites, which unfortunately can only be done manually.
@@ -150,6 +159,8 @@ newspages.ls <-
 print(newspages.ls)
 
 ```
+
+#### Data Extraction
 
 In order to start collecting information, we authenticate with a Facebook App Access Token Since page posts are public, we do not need a user access token to gather the posts and other information.
 
@@ -168,7 +179,7 @@ getAppAccessToken(
 
 We then gather all the data 
 
-```{r Data Gathering, message = FALSE}
+```{r Data Gathering}
 
 # Download all new
 
@@ -177,7 +188,10 @@ try({
     newspages.ls,
     function(newspage) {
       # only run if file does not exist
-      if (!file.exists(paste0("../dta/03-fbpage-", newspage, ".rds"))) {
+      if (
+        !file.exists(paste0("../dta/03-fbpage-", newspage, ".rds")) &
+        !file.exists(paste0("../dta/03-fbpageDONE-", newspage, ".rds"))
+      ) {
         posts.ls <-
           cachedGetFBPage(
             page_name                   = newspage,
@@ -194,7 +208,10 @@ try({
             access_token                = fb.tkn
           )
         
-        saveRDS(object = posts.ls, file = paste0("../dta/03-fbpage-", newspage, ".rds"))
+        saveRDS(
+          object = posts.ls, 
+          file   = paste0("../dta/03-fbpage-", newspage, ".rds")
+        )
         
         rm(posts.ls)
       }
@@ -211,8 +228,13 @@ Now that we have collected the information, we create a SQLite database so we ca
 ```{r Database Creation}
 
 # Create database
-fbpages.sqlite <- src_sqlite(path = "../dta/03-fbpages.sqlite",
-                             create = TRUE)
+fbpages.sqlite <- 
+  src_sqlite(
+    path = "../dta/03-fbpages.sqlite",
+    create = TRUE
+  )
+
+fbpages.sqlite.con <- fbpages.sqlite$con
 
 ```
 
@@ -224,7 +246,7 @@ We then parse through each of the data files and load them into the SQLite datab
 fbpage_data.ls <- 
   list.files("../dta", full.names = TRUE) %>% {
     .[str_detect(., "/03-fbpage-.*\\.rds")]
-  } %>% rev()
+  } 
 
 # Walk through each cache file
 
@@ -232,6 +254,7 @@ walk(
   fbpage_data.ls,
   function(data_path) {
     # Read in data
+    pushNotification(data_path)
     message("Processing ", data_path, "...")
     data <- readRDS(data_path)
     
@@ -248,15 +271,16 @@ walk(
           c(
             "posts", "posts_attachments", "posts_reactions",
             "posts_comments", "posts_comments_likes", 
-            "posts_comments_comments", "posts_comments_comments_likes"
+            "posts_comments_comments",
+            "posts_comments_comments_likes"
           ),
           function(name) {
             # If element exists, write into appropriate data frame
             if (is.data.frame(shard[[name]])) {
               message(name, " ", appendLF = FALSE)
-              fbpages.sqlite$con %>% 
+              fbpages.sqlite.con %>% 
                 db_insert_into(
-                  table  = name,
+                  table  = paste0("fact_", name),
                   values = shard[[name]],
                   append = TRUE
                 )
@@ -282,11 +306,206 @@ walk(
   }
 )
 
-pushNotification()
-
-# TODO: sqlite optimizations (indices, etc.)
-
-
+pushNotification("SQL storage complete")
 
 ```
 
+#### Data Cleaning
+
+We clean the data by:
+
+  * Deduplicating duplicate posts caused by pagination
+  * Factoring out users who commented, liked, or reacted into a `dim_user` table, and `dim_user_unique` table
+  * Optimizing the SQLite table by adding indices and performing an `ANALYZE`
+
+##### Posts
+
+```sql
+DELETE 
+FROM    fact_posts 
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts 
+        GROUP BY post_id);
+```
+
+```sql
+CREATE UNIQUE INDEX post_id ON fact_posts (post_id)
+```
+
+##### Post Attachments
+
+```sql
+DELETE
+FROM    fact_posts_attachments
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts_attachments 
+        GROUP BY object_id, attachment_target_url);
+```
+
+```sql
+CREATE UNIQUE INDEX attachment_id ON 
+  fact_posts_attachments (object_id, attachment_target_url)
+```
+
+##### Post Comments
+
+```sql
+DELETE
+FROM    fact_posts_comments
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts_comments 
+        GROUP BY comment_id);
+```
+
+```sql
+CREATE UNIQUE INDEX comment_id ON fact_posts_comments (comment_id)
+```
+
+##### Post Comment Replies
+
+```sql
+DELETE
+FROM    fact_posts_comments_comments
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts_comments_comments
+        GROUP BY comment_id);
+```
+
+```sql
+CREATE UNIQUE INDEX comment_comment_id ON 
+  fact_posts_comments_comments (comment_id)
+```
+
+##### Post Reactions
+
+```sql
+DELETE
+FROM    fact_posts_reactions
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts_reactions
+        GROUP BY object_id, reactor_id);
+```
+
+```sql
+
+CREATE UNIQUE INDEX reaction_id ON 
+  fact_posts_reactions (object_id, reactor_id)
+
+```
+
+##### Post Comment Likes
+
+```sql
+DELETE
+FROM    fact_posts_comments_likes
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts_comments_likes
+        GROUP BY object_id, liker_id);
+```
+
+```sql
+CREATE UNIQUE INDEX comment_like_id ON 
+  fact_posts_comments_likes (object_id, liker_id)
+```
+
+##### Post Comment Reply Likes
+
+```sql
+DELETE
+FROM    fact_posts_comments_comments_likes
+WHERE   rowid NOT IN (
+        SELECT MIN(rowid) FROM fact_posts_comments_comments_likes
+        GROUP BY object_id, liker_id);
+```
+
+```sql
+CREATE UNIQUE INDEX comment_comment_like_id ON 
+  fact_posts_comments_comments_likes (object_id, liker_id)
+```
+
+##### Users
+
+We factor out users from tables with a user element to preserve space.
+
+```sql
+
+CREATE TABLE dim_user AS 
+
+WITH users_aggregated AS (
+
+  SELECT    liker_id as user_id, 
+            liker_name as user_name
+  FROM      fact_posts_comments_comments_likes
+  
+  UNION
+  
+  SELECT    liker_id as user_id, 
+            liker_name as user_name
+  FROM      fact_posts_comments_likes
+  
+  UNION
+  
+  SELECT    reactor_id as user_id, 
+            reactor_name as user_name
+  FROM      fact_posts_reactions
+  
+  UNION
+  
+  SELECT    commenter_id as user_id, 
+            commenter_name as user_name
+  FROM      fact_posts_comments_comments
+  
+  UNION
+  
+  SELECT    commenter_id as user_id, 
+            commenter_name as user_name
+  FROM      fact_posts_comments
+  
+)
+
+SELECT    DISTINCT 
+          user_id,
+          user_name
+FROM      users_aggregated
+
+```
+
+```sql
+SELECT COUNT(DISTINCT user_id) as num_users FROM dim_user
+```
+
+```sql
+CREATE TABLE dim_user_unique AS 
+SELECT  *
+FROM    dim_user
+WHERE   rowid IN (
+        SELECT MAX(rowid) FROM dim_user
+        GROUP BY user_id);
+```
+
+```sql
+CREATE INDEX user_id ON dim_user (user_id)
+```
+
+```sql
+CREATE UNIQUE INDEX user_unique_id ON dim_user_unique (user_id)
+```
+
+##### Optimizations
+
+```sql
+ANALYZE
+```
+
+### Final Table Schema
+
+After extracting all Facebook posts, reactions, and comments for 2016 in these news pages, we come up with a finalized table schema:
+
+  * `dim_user` - contains all users and their names, duplicate rows are for those that changed their names.
+  * `dim_user_unique` - contains all users and the latest name they have used, unique rows for each user.
+  * `fact_posts` - contains information about all posts made by the news pages, excluding posts by others.
+  * `fact_posts_comments` - contains all top-level comments made on posts
+  * `fact_posts_reactions` - contains all reactions to the posts
+  * `fact_posts_comments_likes` - contains all comment likes on top-level comments
+  * `fact_posts_comments_comments` - contains all comment replies (comments to comments)
+  * `fact_posts_comments_comments_likes` - contains all likes on comment replies
