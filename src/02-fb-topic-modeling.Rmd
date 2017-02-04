@@ -1,0 +1,17 @@
+---
+title: "Facebook Topic Modeling"
+author: "TJ Palanca"
+date: "2/4/2017"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: "lumen"
+    highlight: "tango"
+    code_folding: hide
+---
+
+## Background
+
+A common subject of debate in how media relays information to the public is the relative coverage that a particular topic receives in their Facebook feeds. We attempt to objectively answer this question by using topic modelling techniques.
+
