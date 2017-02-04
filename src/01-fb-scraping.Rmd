@@ -23,7 +23,7 @@ In order to be able to analyze news articles on Facebook, we need a method to ex
 
 We load the libraries necessary to perform the extraction:
 
-```{r setup}
+```{r}
 
 suppressPackageStartupMessages({
   library(httr)      # Making API calls
@@ -42,9 +42,7 @@ suppressPackageStartupMessages({
   library(htmlwidgets) # Javascript bindings
   library(DT)          # DataTables JS Library
   
-  library(pushoverr)   # Push notifications upon completion of long-running processes
-  library(DBI)         # Database management
-  library(RSQLite)     # SQLite Databases
+  library(pushoverr)   # Push notifications
 })
 
 # Set proper working directory
@@ -177,7 +175,7 @@ getAppAccessToken(
 
 ```
 
-We then gather all the data 
+We then gather all the data.
 
 ```{r Data Gathering}
 
@@ -223,6 +221,8 @@ pushNotification()
 
 ```
 
+#### Storage
+
 Now that we have collected the information, we create a SQLite database so we can process it outside of memory.
 
 ```{r Database Creation}
@@ -238,27 +238,33 @@ fbpages.sqlite.con <- fbpages.sqlite$con
 
 ```
 
-We then parse through each of the data files and load them into the SQLite database.
+We then parse through each of the data files and load them into memory.
 
 ```{r Database Storage}
 
 # Get all cache files
-fbpage_data.ls <- 
+fbpage_data.ls <-
   list.files("../dta", full.names = TRUE) %>% {
     .[str_detect(., "/03-fbpage-.*\\.rds")]
-  } 
+  }
+
+# Initialize variables
+posts.dt                         <- data_frame()
+posts_attachments.dt             <- data_frame()
+posts_reactions.dt               <- data_frame()
+posts_comments.dt                <- data_frame()
+posts_comments_likes.dt          <- data_frame()
+posts_comments_comments.dt       <- data_frame()
+posts_comments_comments_likes.dt <- data_frame()
 
 # Walk through each cache file
-
 walk(
   fbpage_data.ls,
   function(data_path) {
     # Read in data
-    pushNotification(data_path)
-    message("Processing ", data_path, "...")
     data <- readRDS(data_path)
     
-    # Walk through each shard
+    # Combine data frames in each shard
     walk(
       1:length(data),
       function(i) {
@@ -293,16 +299,10 @@ walk(
         message("Done!")
       }
     )
-    
+
     # Remove data from memory
     rm(data)
     message("Done processing ", data_path, "!")
-    
-    # Rename file to indicate done
-    file.rename(
-      from = data_path,
-      to = str_replace(data_path, "03-fbpage-", "03-fbpageDONE-")
-    )
   }
 )
 
