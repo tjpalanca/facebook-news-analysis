@@ -10,7 +10,7 @@ output:
     highlight: "tango"
     code_folding: show
     self_contained: false
-    lib_dir: libs
+    lib_dir: ../../libs
 ---
 
 ## Background
