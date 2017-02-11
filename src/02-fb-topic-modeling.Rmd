@@ -20,11 +20,16 @@ A common subject of debate in how media relays information to the public is the 
 
 ### Methodology
 
-Given a set of documents 
+In order to determine the distribution of topics that news websites cover, we need to find a way to map the the headline, caption, and other raw text to a particular topic, without having prior knowledge on what those topics are. This translates to an unsupervised classification problem on natural language. One of the most common algorithms for dealing with this information is **Latent Dirichlet Allocation (LDA).**^[[Blei, Ng, & Jordan (2003). Latent Dirichlet Allocation. *Journal of Machine Learning Research 3 (2003) 993-1022*.](http://jmlr.csail.mit.edu/papers/v3/blei03a.html)]
 
-### Analysis Plan
+This model views the text generation process as conforming to the following characteristics: 
 
-  1. Extract data
+  * **A topic is a mixture of non-exclusive words.** A topic is comprised of many words, and each word maps to one or more topics.
+  * **A document (in this case, a news post), is a mixture of topics.** Each document can be thought of as containing a proportion of words from each topic.
+
+LDA is the algorithm that simultaneously maps words to topics and topics to documents. One of the important considerations of this model is that the number of topics $k$ must be known a-priori.
+
+See [here](https://www.youtube.com/watch?v=3mHy4OSyRf0) for an excellent detailed video explanation of the LDA algorithm, [here](http://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf) for the seminal paper on the algorithm, and [here](https://cran.r-project.org/web/packages/topicmodels/vignettes/topicmodels.pdf) for the specific implementation that I am implementing in R.
 
 ## Preliminaries
 
