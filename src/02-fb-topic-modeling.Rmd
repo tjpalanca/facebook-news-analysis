@@ -1,7 +1,8 @@
 ---
 title: "Facebook Topic Modeling"
+subtitle: "tjpalanca.com"
 author: "TJ Palanca"
-date: "2/4/2017"
+date: "4 Feb 2017"
 output: 
   html_document:
     toc: true
@@ -13,5 +14,167 @@ output:
 
 ## Background
 
+### Motivation
+
 A common subject of debate in how media relays information to the public is the relative coverage that a particular topic receives in their Facebook feeds. We attempt to objectively answer this question by using topic modelling techniques.
+
+### Methodology
+
+Given a set of documents 
+
+### Analysis Plan
+
+  1. Extract data
+
+## Preliminaries
+
+We load libraries needed for this analysis.
+
+```{r}
+
+suppressPackageStartupMessages({
+  library(dplyr)     # Data manipulation
+  library(stringr)   # String manipulation
+  library(lubridate) # Date and time manipulation
+  library(purrr)     # Functional programming
+  library(tidyr)     # Reshaping
+  
+  library(ggplot2)   # Static data visualization
+  
+  library(httr)      # HTTP functions
+  library(jsonlite)  # JSON parsing
+})
+
+# Set proper working directory
+if(interactive() & !str_detect(getwd(), "src")) setwd("src")
+
+```
+
+## Data Import
+
+From the data that we have extracted via the Facebook Graph API (details can be found [here](http://www.tjpalanca.com/static/20170208-fb-scraping.html)).
+
+```{r Database Pointer Definition}
+
+# Create linkage to database
+src_sqlite(
+  path   = "../dta/03-fbpages.sqlite",
+  create = FALSE
+) -> fbpages.sqlite
+
+# Define required tables
+fbpages.sqlite %>% tbl("fact_posts") -> posts.sql
+fbpages.sqlite %>% tbl("fact_posts_attachments") -> attachments.sql
+
+```
+
+```{r Extract data}
+
+posts.sql %>% 
+  left_join(attachments.sql, by = c("post_id" = "object_id")) %>% 
+  collect(n = Inf) ->
+  posts.dt
+
+```
+
+```{r Data cleaning}
+
+posts.dt %>% 
+  # Remove duplicates
+  group_by(post_id) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() %>% 
+  # Timestamp type and timezone conversion
+  mutate(
+    post_timestamp_utc = 
+      post_timestamp_utc %>%
+      as.POSIXct(origin = "1970-01-01", tz = "UTC"),
+    post_timestamp_local = 
+      post_timestamp_utc %>% 
+      with_tz("Asia/Manila")
+  ) ->
+  posts_clean.dt
+
+```
+
+## Data Augmentation
+
+We require additional fields in order to make the analysis richer. We query from the Facebook Graph API for the `description`, `url`, and `attachment_media_src` field of the attachments.
+
+```{r Data augmentation}
+
+if (!file.exists("../cache/topic-modeling-posts-augment.rds")) {
+  # Source original scraping functions
+  source("../func/01-page-scraping-functions.R")
+  
+  # Authenticate
+  load("../bin/fb_auth.rda")
+  
+  getAppAccessToken(
+    fb_app_id = fb_app_id,
+    fb_app_secret = fb_app_secret
+  )
+  
+  # Create augmentation function
+  getFBAttachmentData <- function(post_ids, partition) {
+    cat(unique(partition), "\n")
+    Sys.sleep(0.5)
+    callFBGraphAPI(
+      node  = "attachments",
+      query = list(
+        ids = paste0(post_ids, collapse = ","),
+        fields = "description,url,media{image{src}}"
+      )
+    )
+  }
+  
+  # Loop over attachments and prepare data
+  posts_clean.dt %>% 
+    mutate(partition = ceiling(row_number()/20)) %>% 
+    split(.$partition) %>% 
+    map(~getFBAttachmentData(.$post_id, .$partition)) ->
+    posts_augment.ls
+  
+  # Flatten and process data
+  posts_augment.ls %>% 
+    map(~map(., "data")) %>% 
+    flatten_df("post_id") %>% 
+    mutate(media = map_chr(media, ~.$src %||% NA_character_)) %>% 
+    rename(
+      attachment_description = description, 
+      attachment_url         = url,
+      attachment_media_src   = media
+    ) -> 
+    posts_augment.dt
+  
+  # Save to cache
+  saveRDS(posts_augment.dt, "../cache/topic-modeling-posts-augment.rds")
+} else {
+  readRDS("../cache/topic-modeling-posts-augment.rds") ->
+    posts_augment.dt
+}
+
+```
+
+Now that all data transforms are complete, we consolidate objects in memory.
+
+```{r Consolidation}
+
+# Join to original table
+posts_clean.dt %>% 
+  left_join(posts_augment.dt, by = "post_id") %>% 
+  select(-attachment_media_url) ->
+  posts_complete.dt
+
+# Filter to 2016 posts and rename to original file
+posts_complete.dt %>% 
+  filter(year(post_timestamp_local) == 2016) -> 
+  posts.dt
+
+# Remove objects in memory
+rm(posts_augment.dt, posts_clean.dt, posts_complete.dt, posts_augment.ls)
+
+```
+
+## Data
 
