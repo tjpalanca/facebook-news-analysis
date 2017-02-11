@@ -35,7 +35,7 @@ See [here](https://www.youtube.com/watch?v=3mHy4OSyRf0) for an excellent detaile
 
 We load libraries needed for this analysis.
 
-```{r}
+```{r setup}
 
 suppressPackageStartupMessages({
   library(dplyr)     # Data manipulation
@@ -51,6 +51,7 @@ suppressPackageStartupMessages({
   library(jsonlite)  # JSON parsing
   
   library(tidytext)  # Tidy text mining
+  library(hunspell)  # Spell checking, stemming, and others
 })
 
 # Set proper working directory
@@ -186,6 +187,8 @@ rm(posts_augment.dt, posts_clean.dt, posts_complete.dt, posts_augment.ls)
 
 ## Pre-processing
 
+We use a Tagalog hunspell library created by Jan Alonzo (GNU GPLv2) for the succeeding parts of this analysis.
+
 ### Shaping
 
 For this analysis, we only include post types that do easily lend themselves to text analysis, therefore video, photo, and other complex post types are removed; only types `share` and `quoted_share` are included.
@@ -210,29 +213,29 @@ posts.dt %>%
   # Retain only relevant columns 
   select(post_id, text) %>% 
   # Tokenize by word
-  unnest_tokens(word, text, token = "words", to_lower = TRUE) ->
+  unnest_tokens(word, text, token = "words", to_lower = TRUE) %>%
+  unnest_tokens(word, word, token = "regex", pattern = "[.]", collapse = FALSE) %>% 
+  unnest_tokens(word, word, token = "regex", pattern = "[_]", collapse = FALSE) %>% 
+  unnest_tokens(word, word, token = "regex", pattern = "[:]", collapse = FALSE) %>% 
+  # Cleaning apostrophe words 
+  mutate(word = word %>% str_replace("['’‘].*$", "")) ->
   # Assign to variable
   posts_tokenized.dt
 
 ```
 
-### Spell checking
-
-
-### Stemming
-
-Stemming is process of converting words into their root words, so we get to the root idea of the issue and relate similar words to each other.
-
 ### Invalid characters
 
-We first try to filter out words with invalid characters.
+We first try to filter out words with invalid characters and numbers.
 
 ```{r Show unique characters}
 
 # Get unique characters
 posts_tokenized.dt %>% 
-  mutate(chars = str_split(word, pattern = "")) ->
-  flatten_chr(word) %>% 
+  distinct(word) %>% 
+  mutate(word = iconv(word, to = "UTF-8")) %>% 
+  mutate(chars = str_split(word, pattern = "")) %$%
+  flatten_chr(chars) %>% 
   unique() -> 
   unique_characters.vec
 
@@ -240,25 +243,65 @@ unique_characters.vec
 
 ```
 
-As you can see there are quite a few characters that don't make sense.
+As you can see there are quite a few characters that don't make sense. We remove words that contain invalid characters.
 
 ```{r}
 
 # Get invalid characters
-unique_characters.vec[!str_detect(unique_characters.vec, "[a-z'’ñ]")] ->
-  invalid_characters.vec
-
-paste0("[", paste0(invalid_characters.vec, collapse = ""), "]") -> 
+unique_characters.vec[!str_detect(unique_characters.vec, "[a-zá-ž]")] %>%
+  { paste0("[", paste0(., collapse = ""), "]") } -> 
   invalid_characters.rgx
 
 # View words with invalid characters 
 posts_tokenized.dt %>% 
-  distinct(word) %>% 
-  filter(str_detect(word, invalid_characters.rgx)) %>% 
-  filter(!str_detect(word, "[0-9]")) ->
-  a
+  filter(!str_detect(word, invalid_characters.rgx)) ->
+  posts_tokenized.dt
 
-View(a)
+```
+
+### Spell checking
+
+Given that this is post information and not comments, we don't have to do much spell checking, but we do so as a precautionary step.
+
+```{r}
+
+
+
+
+posts_tokenized.dt %>% 
+  # Tagalog and English spell checks
+  mutate(
+    tl_spellcheck = hunspell_check(word, "tl_PH"),
+    en_spellcheck = hunspell_check(word, "en_US"),
+    fail_spellcheck = !tl_spellcheck & !en_spellcheck
+  ) 
+  
+  # For words that do not pass either spell check,
+  # get list of suggested words
+  mutate(
+    tl_suggest = 
+      map2(
+        word, fail_spellcheck,
+        ~ifelse(.y, hunspell_suggest(.x, "tl_PH"), NA)
+      ),
+    en_suggest = 
+      map2(
+        word, fail_spellcheck,
+        ~ifelse(.y, hunspell_suggest(.x, "tl_PH"), NA)
+      )
+  ) -> a
+
+```
+
+### Stemming
+
+Stemming is process of converting words into their root words, so we get to the root idea of the issue and relate similar words to each other.
+
+```{r}
+
+
+
+
 
 ```
 
