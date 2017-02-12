@@ -457,7 +457,7 @@ posts_tokenized.dt %>%
   posts_tokenized.dt
 
 # Clean up
-rm(posts_tokens.dt, posts_tokens_en.dt, posts_tokens_tl.dt)
+rm(posts_stems.dt, posts_stems_en.dt, posts_stems_tl.dt)
 
 ```
 
@@ -465,13 +465,52 @@ rm(posts_tokens.dt, posts_tokens_en.dt, posts_tokens_tl.dt)
 
 We first eliminate stopwords, i.e. words that are common to a language and do not contain meaning. For the purpose of this model, we use stopwords for English and Filipino/Tagalog.
 
-```{r Download stopwords}
+```{r Stop word removal}
+
+# Collect English and Tagalog stopwords
+stopwords.ls <- c(
+  stop_words$word, 
+  fromJSON(
+    "https://raw.githubusercontent.com/stopwords-iso/stopwords-tl/master/stopwords-tl.json"
+  )
+)
+
+# Filter out stopwords
+posts_tokenized.dt %>% 
+  filter(!word %in% stopwords.ls) -> 
+  posts_tokenized.dt
+
+```
+
+### Casting
+
+We summarise the data format into a more compressed form and convert it into a document term matrix.
+
+```{r}
+
+# Summarise
+posts_tokenized.dt %>% 
+  group_by(post_id, word) %>% 
+  summarise(term_frequency = n()) ->
+  posts_tokenized.dt
+
+# Convert to document term matrix
+posts_tokenized.dt %>% 
+  cast_dtm(post_id, word, term_frequency) ->
+  posts_tokenized.dtm
 
 ```
 
 ## Analysis
 
 ### Latent Dirichlet Allocation
+
+#### Determining the appropriate number of topics
+
+```{r}
+
+```
+
 
 ### Topic Distributions by Page
 
