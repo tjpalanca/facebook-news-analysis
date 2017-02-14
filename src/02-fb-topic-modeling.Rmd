@@ -47,6 +47,8 @@ suppressPackageStartupMessages({
   
   library(pushoverr)   # Pushover notifications
   
+  library(doMC)        # Parallel Computin
+  
   library(ggplot2)     # Static data visualization
   
   library(httr)        # HTTP functions
@@ -556,7 +558,11 @@ posts_tokenized.dt %>%
 
 In order to determine the ideal number of topics $k$, we perform 5-fold cross validation on [perplexity](https://en.wikipedia.org/wiki/Perplexity) at different values of $k$. We then compute the rate of perplexity change (RPC) For more information on this method of selection, see [Zhao et al. (2015)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4597325/).
 
+We construct a function that will allow us to make these computations in parallel, since this is an embarassingly parallel problem.
+
 ```{r}
+
+registerDoMC(cores = 3)
 
 # Set up cross validation function
 crossValidatePerplexity <- function(dtm, n_folds, k_candidates, method) {
@@ -572,10 +578,15 @@ crossValidatePerplexity <- function(dtm, n_folds, k_candidates, method) {
   #   data_frame containing the cross validation results, including original training and 
   #   testing DTMs, and the perplexity on training and testing.
   set.seed(7292)
+  
+  # Get DTM splits
   dtm_split <- sample(1:n_folds, dtm$nrow, replace = TRUE) 
-  map_df(
-    1:length(k_candidates),
-    function(k_index) {
+  
+  # Register parallel backend
+  registerDoMC(cores = detectCores() - 1)
+  
+  results <- 
+    foreach(k_index = 1:length(k_candidates), .combine = 'rbind') %dopar% {
       # Set k parameter
       k.prm <- k_candidates[k_index]
       cat("K =", k.prm, ":")
@@ -610,7 +621,12 @@ crossValidatePerplexity <- function(dtm, n_folds, k_candidates, method) {
         cat("\n")
       }
     }
-  )
+  
+  # Remove parallel facilities
+  registerDoSEQ()
+  
+  # Return results
+  return(results)
 }
 
 ```
@@ -623,13 +639,14 @@ set.seed(7292)
 crossValidatePerplexity(
   dtm          = posts_tokenized.dtm[sample(1:posts_tokenized.dtm$nrow, posts_tokenized.dtm$nrow * 0.1),],
   n_folds      = 5,
-  k_candidates = c(2, 5, 10, 25, 50),
+  k_candidates = c(10, 15, 20, 25, 30, 35, 40, 45, 50),
   method       = "Gibbs"
 ) -> 
-  posts_tokenized.cvmdl
+  posts_tokenized_perplexity_cv.dt
+
+pushNotification("Cross validation complete!")
 
 ```
-
 
 ### Topic Distributions by Page
 
