@@ -38,25 +38,41 @@ We load libraries needed for this analysis.
 ```{r Setup}
 
 suppressPackageStartupMessages({
-  library(dplyr)     # Data manipulation
-  library(stringr)   # String manipulation
-  library(lubridate) # Date and time manipulation
-  library(purrr)     # Functional programming
-  library(tidyr)     # Reshaping
-  library(magrittr)  # Advanced piping
+  library(dplyr)       # Data manipulation
+  library(stringr)     # String manipulation
+  library(lubridate)   # Date and time manipulation
+  library(purrr)       # Functional programming
+  library(tidyr)       # Reshaping
+  library(magrittr)    # Advanced piping
   
-  library(ggplot2)   # Static data visualization
+  library(pushoverr)   # Pushover notifications
   
-  library(httr)      # HTTP functions
-  library(jsonlite)  # JSON parsing
+  library(ggplot2)     # Static data visualization
   
-  library(tidytext)  # Tidy text mining
-  library(hunspell)  # Text processing
-  library(stringdist) # String
+  library(httr)        # HTTP functions
+  library(jsonlite)    # JSON parsing
+  
+  library(tidytext)    # Tidy text mining
+  library(hunspell)    # Text processing
+  library(stringdist)  # String distances
+  library(topicmodels) # Topic modelling
 })
 
 # Set proper working directory
 if(interactive() & !str_detect(getwd(), "src")) setwd("src")
+
+# Load Pushover credentials
+load("../bin/pushover_auth.rda")
+
+pushNotification <- function(text = "Execution Completed") {
+  pushover(
+    title = text,
+    url = "http://adhoc01.tjpalanca.com",
+    message = "adhoc01.tjpalanca.com",
+    user = pushover_user_key,
+    app = pushover_app_key
+  )
+}
 
 ```
 
@@ -275,7 +291,7 @@ posts_tokenized.dt %>%
 
 Given that this is post information and not comments, we don't have to do much spell checking, but we do so as a precautionary step.
 
-```{r}
+```{r Sample spell checking}
 
 posts_tokenized.dt %>% 
   # Tagalog and English spell checks
@@ -437,7 +453,7 @@ posts_stems_tl.dt %>% sample_n(20)
 
 ```{r}
 
-# Check no overlap
+# Check no overlap between tagalog and english stem words
 stopifnot(
   intersect(posts_stems_tl.dt$word, posts_stems_en.dt$word) %>% length() == 0
 )
@@ -472,7 +488,11 @@ stopwords.ls <- c(
   stop_words$word, 
   fromJSON(
     "https://raw.githubusercontent.com/stopwords-iso/stopwords-tl/master/stopwords-tl.json"
-  )
+  ),
+  # Manual stopwords
+  "thy", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "befullyinformed", "sen", "cnn", "final", "start", "san", "anti", "http", "https",
+  "iii"
 )
 
 # Filter out stopwords
@@ -482,17 +502,44 @@ posts_tokenized.dt %>%
 
 ```
 
-### Casting
+### Filtering and Casting
 
 We summarise the data format into a more compressed form and convert it into a document term matrix.
 
-```{r}
+```{r Term Frequency}
 
 # Summarise
 posts_tokenized.dt %>% 
   group_by(post_id, word) %>% 
-  summarise(term_frequency = n()) ->
+  summarise(term_frequency = n()) %>% 
+  ungroup() ->
   posts_tokenized.dt
+
+```
+
+We remove words that do not appear in at least 5 documents (3 posts are totally eliminated).
+
+```{r Remove rare words}
+
+# Select rare words
+posts_tokenized.dt %>% 
+  group_by(word) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  filter(count < 5) ->
+  posts_rare_words.dt
+
+# Remove rare words
+posts_tokenized.dt %>% 
+  anti_join(posts_rare_words.dt, by = "word") ->
+  posts_tokenized.dt
+
+# Clean up
+rm(posts_rare_words.dt)
+
+```
+
+```{r Cast to DTM}
 
 # Convert to document term matrix
 posts_tokenized.dt %>% 
@@ -503,11 +550,83 @@ posts_tokenized.dt %>%
 
 ## Analysis
 
-### Latent Dirichlet Allocation
+### Topic modelling
 
-#### Determining the appropriate number of topics
+#### Setting the number of topics
+
+In order to determine the ideal number of topics $k$, we perform 5-fold cross validation on [perplexity](https://en.wikipedia.org/wiki/Perplexity) at different values of $k$. We then compute the rate of perplexity change (RPC) For more information on this method of selection, see [Zhao et al. (2015)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4597325/).
 
 ```{r}
+
+# Set up cross validation function
+crossValidatePerplexity <- function(dtm, n_folds, k_candidates, method) {
+  # Performs `n_folds`-fold cross validation on the LDA perplexity for different k_candidates
+  # 
+  # Args:
+  #   dtm:          The document term matrix on which LDA is to be performaed
+  #   n_folds:      Number of folds to be split per k candidate
+  #   k_candidates: The candidate k values on which perplexity will be computed
+  #   method:       Use either Variational EM "VEM" or Gibbs Sampling "Gibbs"
+  #
+  # Returns:
+  #   data_frame containing the cross validation results, including original training and 
+  #   testing DTMs, and the perplexity on training and testing.
+  set.seed(7292)
+  dtm_split <- sample(1:n_folds, dtm$nrow, replace = TRUE) 
+  map_df(
+    1:length(k_candidates),
+    function(k_index) {
+      # Set k parameter
+      k.prm <- k_candidates[k_index]
+      cat("K =", k.prm, ":")
+      map_df(
+        1:n_folds,
+        function(folds_index) {
+          cat("", folds_index, "")
+          # Split dataset
+          training.dtm <- dtm[dtm_split != folds_index, ]
+          testing.dtm  <- dtm[dtm_split == folds_index, ]
+          
+          # Train LDA on training set
+          training.lda <- LDA(
+            x       = training.dtm,
+            k       = k.prm,
+            method  = method,
+            control = list(seed = 7292)
+          )
+          
+          # Compute perplexity on test set and return results
+          data_frame(
+            k            = k.prm,
+            fold         = folds_index,
+            training_dtm = list(training.dtm),
+            testing_dtm  = list(testing.dtm),
+            training_lda = list(training.lda),
+            training_perplexity = perplexity(training.lda, training.dtm),
+            testing_perplexity  = perplexity(training.lda, testing.dtm)
+          )
+        }
+      ) %T>% {
+        cat("\n")
+      }
+    }
+  )
+}
+
+```
+
+On a 10% random sample, we estimate the perplexity using 5-fold cross validation for different values of $k$.
+
+```{r}
+
+set.seed(7292)
+crossValidatePerplexity(
+  dtm          = posts_tokenized.dtm[sample(1:posts_tokenized.dtm$nrow, posts_tokenized.dtm$nrow * 0.1),],
+  n_folds      = 5,
+  k_candidates = c(2, 5, 10, 25, 50),
+  method       = "Gibbs"
+) -> 
+  posts_tokenized.cvmdl
 
 ```
 
