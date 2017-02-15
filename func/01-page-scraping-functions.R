@@ -4,6 +4,19 @@
 # This section contains functions to be used in scraping Facebook page posts,
 # likes, comments, and the likes and comments of such comments.
 
+# Pushover functions
+load("../bin/pushover_auth.rda")
+
+pushNotification <- function(text = "Execution Completed") {
+  pushover(
+    title = text,
+    url = "http://adhoc01.tjpalanca.com",
+    message = "adhoc01.tjpalanca.com",
+    user = pushover_user_key,
+    app = pushover_app_key
+  )
+}
+
 getNAforNULL <- function(x) {
   # returns NA when object is null
   if (is.null(x)) {

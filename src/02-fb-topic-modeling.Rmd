@@ -63,19 +63,6 @@ suppressPackageStartupMessages({
 # Set proper working directory
 if(interactive() & !str_detect(getwd(), "src")) setwd("src")
 
-# Load Pushover credentials
-load("../bin/pushover_auth.rda")
-
-pushNotification <- function(text = "Execution Completed") {
-  pushover(
-    title = text,
-    url = "http://adhoc01.tjpalanca.com",
-    message = "adhoc01.tjpalanca.com",
-    user = pushover_user_key,
-    app = pushover_app_key
-  )
-}
-
 ```
 
 ## Data Import
