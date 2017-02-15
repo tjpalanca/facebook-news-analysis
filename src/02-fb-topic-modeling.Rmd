@@ -63,6 +63,22 @@ suppressPackageStartupMessages({
 # Set proper working directory
 if(interactive() & !str_detect(getwd(), "src")) setwd("src")
 
+# Theming
+quartzFonts(
+  Roboto = 
+    c("RobotoCondensed-Light",
+      "RobotoCondensed-Bold",
+      "RobotoCondensed-Italic",
+      "RobotoCondensed-BoldItalic")
+)
+
+theme_set(
+  theme_bw(base_family = "Roboto", base_size = 14) +
+    theme(
+      plot.title = element_text(face = "bold")
+    )
+)
+
 ```
 
 ## Data Import
