@@ -4,6 +4,123 @@
 
 # This section contains functions that assist with topic modelling.
 
+stemWords <- function(df, patterns, lang) {
+  # Applies a simple, conservative stemming algorithm
+  #
+  # Args:
+  #   df:       data frame containing words (`word`)
+  #   patterns: list of regex expressions containing the prefixes, suffixes, and mid-fixes
+  #   lang:     en_US or tl_PH, depending on the language in question
+  # 
+  # Returns:
+  #   A unique mapping between the identified words and the suggested stem
+  
+  df %>% 
+    # Get all distinct words
+    distinct(word) %>%
+    # Filter to language
+    filter(hunspell_check(word, lang)) %>% 
+    # Remove words too short for any modification
+    filter(str_length(word) > 3) %>% 
+    # Generate pattern matches
+    mutate(
+      pattern = 
+        map(
+          word,
+          function(word, patterns) patterns[map_lgl(patterns, ~str_detect(word, .))],
+          patterns = patterns
+        )
+    ) %>% 
+    unnest(pattern) %>% 
+    # Remove pattern from word
+    mutate(stem_word = str_replace(word, pattern, "")) %>%
+    # Add pattern exceptions if no words pass spell check
+    mutate(
+      stem_word = 
+        map(
+          stem_word,
+          function(stem_word) {
+            append(
+              stem_word,
+              c(
+                # ENGLISH
+                ifelse(
+                  lang == "en_US",
+                  paste0(stem_word, "e"), NA
+                ),
+                ifelse(
+                  lang == "en_US" & 
+                    str_detect(stem_word, "i$"), 
+                  stem_word %>% str_replace("i$", "y"), NA
+                ),
+                ifelse(
+                  lang == "en_US" &
+                    str_sub(stem_word, -1, -1) == str_sub(stem_word, -2, -2),
+                  str_sub(stem_word, 1, -2), NA
+                ),
+                # TAGALOG
+                ifelse(
+                  lang == "tl_PH",
+                  str_replace_all(stem_word, "u", "o"), NA
+                ),
+                ifelse(
+                  lang == "tl_PH",
+                  str_replace(stem_word, "r$", "d$"), NA
+                )
+              ) %>% na.omit()
+            )
+          }
+        )
+    ) %>% 
+    # Get only words that pass spell check
+    mutate(stem_word = map(stem_word, ~.[hunspell_check(., lang)])) %>%
+    # Get only words that are long enough
+    mutate(stem_word = map(stem_word, ~.[str_length(.) >= 3])) %>%
+    # Remove stem_word_pass
+    # Combine up the canididate stem words per word
+    group_by(word) %>%
+    summarise(stem_words = list(unique(unlist(stem_word)))) %>%
+    # Get final stem word by minimum Levenshtein distance
+    mutate(
+      stem_word =
+        map2_chr(
+          stem_words,
+          word,
+          function(stem_words, word) {
+            if (length(stem_words) == 0) return(NA)
+            # Rank by Levenshtein distance
+            distances  <- stringdist(stem_words, word)
+            stem_words <- stem_words[distances == min(distances, na.rm = TRUE)]
+            stem_words[[1]]
+          }
+        )
+    ) %>% 
+    select(-stem_words) %>% 
+    filter(!is.na(stem_word)) %>% 
+    # Manual adjustments to Tagalog words %>% 
+    mutate(
+      stem_word = map_chr(
+        stem_word,
+        function(stem_word) {
+          ifelse(
+            lang != "tl_PH",
+            stem_word,
+            ifelse(
+              str_sub(stem_word, 1, 1) == str_sub(stem_word, 2, 2),
+              str_sub(stem_word, 2, -1),
+              ifelse(
+                str_sub(stem_word, 1, 2) == str_sub(stem_word, 3, 4),
+                str_sub(stem_word, 3, -1), stem_word
+              )
+            )
+          )
+        }
+      )
+      
+    )
+  
+}
+
 crossValidatePerplexity <- function(dtm, n_folds, k_candidates, method) {
   # Performs `n_folds`-fold cross validation on the LDA perplexity for different k_candidates
   # 
@@ -107,7 +224,7 @@ plotCrossValidatedPerplexity <- function(df) {
           ungroup()
       )
     } %>% 
-    filter(type == "testing_perplexity") %>% {
+    filter(type == "testing_perplexity", !is.na(perplexity_change)) %>% {
       suppressWarnings({
         ggplot(data = ., aes(x = k, y = rate_perplexity_change)) +
           geom_point(data = filter(., fold != 0), color = "darkgray") +
