@@ -467,7 +467,7 @@ plotCrossValidatedPerplexity(posts_tokenized_perplexity_cv.dt) +
       "LDA Perplexity, 5-fold cross validation, 2016 Facebook News Corpus",
     x = "Number of Topics (k)",
     y = "Rate of Perplexity Change\n(units/marginal topic)",
-    caption = "\nLine indicates average perplexity\nPoints indicate folds"
+    caption = "\nLine indicates average perplexity change\nPoints indicate folds"
   )  
 
 ```
@@ -476,7 +476,7 @@ plotCrossValidatedPerplexity(posts_tokenized_perplexity_cv.dt) +
 
 As you can see, the change point (where the rate of perplexity change no longer falls significantly with additional topics) is at 40 topics.
 
-### LDA Training
+#### LDA Training
 
 We then train the LDA on the full dataset, with $k = 40$.
 
@@ -490,12 +490,67 @@ LDA(
   control = list(seed = 7292)
   
 ) -> posts.lda
-          
-pushNotification("LDA Training Complete!")
 
 ```
 
-Training took 2 hours on the full dataset.
+Training took 2 hours on the full dataset. We extract the word-topic probabilies, and the document-topic probabilities produced by the model.
 
-### Topic Naming
+```{r}
 
+# Word-topic probabilities
+posts.lda %>% tidy("beta") -> posts.wtp
+
+# Document-topic probabilities
+posts.lda %>% tidy("gamma") -> posts.dtp
+
+```
+
+#### Topic Labeling
+
+We can then assess the word-topic probabilities in order to get an idea of the topic that is most.
+
+Since we have over 100,000 unique terms in the corpus, we need to extract the top few words that most uniquely define each topic, so that we can more easily visualize and label them. We use the measure of relevance defined by [Sievert and Shirley (2014)](http://nlp.stanford.edu/events/illvi2014/papers/sievert-illvi2014.pdf). Relevance of term $w$ to topic $k$ given a weight parameter $\lambda$ between 0 and 1 $r(w, k | \lambda)$ is computed as:
+
+$$
+r(w, k | \lambda) = \lambda\log(\phi_{kw}) + (1-\lambda)\log(\frac{\phi_{kw}}{p_w})
+$$
+
+where $\phi_{kw}$ is the probability of term $w$ for topic $k$, and $p_w$ is the empirical probability of the word in the corpus. $\lambda$ can be thought of as a weighting term between ranking by the probability of that word within the topic, and ranking by the lift over the overall probability in the corpus.
+
+In user studies, Sievert and Shirley (2004) found that a lambda value of 0.6 as an optimal value for allowing humans to identify the topics associated with the top words ranked by relevance. We use this same value for lambda.
+
+```{r Compute relevance}
+
+posts.wtp %>%
+  # Compute lambda and phi_kw
+  mutate(
+    lambda = 0.6,
+    phi_kw = beta
+  ) %>% 
+  # Compute and join the p_w
+  left_join(
+    posts_tokenized.dt %>%
+      group_by(word) %>% 
+      summarise(frequency = sum(term_frequency)) %>% 
+      ungroup() %>% 
+      mutate(p_w = frequency/sum(frequency)) %>% 
+      select(-frequency),
+    by = c("term" = "word")
+  ) %>%
+  # Compute the relevance
+  mutate(
+    relevance = lambda * log(phi_kw) + (1 - lambda) * log(phi_kw/p_w)
+  ) ->
+  word_relevance.dt
+
+```
+
+We extract the top 30 most relevant words and plot
+
+```{r}
+
+
+```
+
+
+### Exploratory Analyses
