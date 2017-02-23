@@ -44,12 +44,12 @@ suppressPackageStartupMessages({
   library(purrr)       # Functional programming
   library(tidyr)       # Reshaping
   library(magrittr)    # Advanced piping
-  
   library(pushoverr)   # Pushover notifications
-  
-  library(doMC)        # Parallel Computin
+  library(doMC)        # Parallel Computing
+  library(readr)       # Importing data
   
   library(ggplot2)     # Static data visualization
+  library(ggrepel)     # Repel text labels
   
   library(httr)        # HTTP functions
   library(jsonlite)    # JSON parsing
@@ -58,24 +58,27 @@ suppressPackageStartupMessages({
   library(hunspell)    # Text processing
   library(stringdist)  # String distances
   library(topicmodels) # Topic modelling
+  library(proxy)       # Distance measures
 })
 
 # Set proper working directory
-if(interactive() & !str_detect(getwd(), "src")) setwd("src")
+if (interactive() & !str_detect(getwd(), "src")) setwd("src")
 
 # Theming
 quartzFonts(
   Roboto = 
-    c("RobotoCondensed-Light",
-      "RobotoCondensed-Bold",
-      "RobotoCondensed-Italic",
-      "RobotoCondensed-BoldItalic")
+    c("RobotoSlab-Light",
+      "RobotoSlab-Bold",
+      "RobotoSlab-Regular",
+      "RobotoSlab-Thin")
 )
 
 theme_set(
   theme_bw(base_family = "Roboto", base_size = 14) +
     theme(
-      plot.title = element_text(face = "bold")
+      plot.title = element_text(face = "bold", size = 12, margin = margin(0, 0, 4, 0, "pt")),
+      plot.subtitle = element_text(size = 8),
+      plot.caption = element_text(size = 5, hjust = 0)
     )
 )
 
@@ -488,7 +491,6 @@ LDA(
   k       = 40,
   method  = "Gibbs",
   control = list(seed = 7292)
-  
 ) -> posts.lda
 
 ```
@@ -509,7 +511,7 @@ posts.lda %>% tidy("gamma") -> posts.dtp
 
 We can then assess the word-topic probabilities in order to get an idea of the topic that is most.
 
-Since we have over 100,000 unique terms in the corpus, we need to extract the top few words that most uniquely define each topic, so that we can more easily visualize and label them. We use the measure of relevance defined by [Sievert and Shirley (2014)](http://nlp.stanford.edu/events/illvi2014/papers/sievert-illvi2014.pdf). Relevance of term $w$ to topic $k$ given a weight parameter $\lambda$ between 0 and 1 $r(w, k | \lambda)$ is computed as:
+Since we have over 30,000 unique terms in the corpus, we need to extract the top few words that most uniquely define each topic, so that we can more easily visualize and label them. We use the measure of relevance defined by [Sievert and Shirley (2014)](http://nlp.stanford.edu/events/illvi2014/papers/sievert-illvi2014.pdf). Relevance of term $w$ to topic $k$ given a weight parameter $\lambda$ between 0 and 1 $r(w, k | \lambda)$ is computed as:
 
 $$
 r(w, k | \lambda) = \lambda\log(\phi_{kw}) + (1-\lambda)\log(\frac{\phi_{kw}}{p_w})
@@ -523,10 +525,7 @@ In user studies, Sievert and Shirley (2004) found that a lambda value of 0.6 as 
 
 posts.wtp %>%
   # Compute lambda and phi_kw
-  mutate(
-    lambda = 0.6,
-    phi_kw = beta
-  ) %>% 
+  mutate(lambda = 0.6, phi_kw = beta) %>% 
   # Compute and join the p_w
   left_join(
     posts_tokenized.dt %>%
@@ -538,19 +537,109 @@ posts.wtp %>%
     by = c("term" = "word")
   ) %>%
   # Compute the relevance
-  mutate(
-    relevance = lambda * log(phi_kw) + (1 - lambda) * log(phi_kw/p_w)
-  ) ->
+  mutate(relevance = lambda * log(phi_kw) + (1 - lambda) * log(phi_kw/p_w)) ->
   word_relevance.dt
 
 ```
 
-We extract the top 30 most relevant words and plot
+We take a look at samples of articles labeled with the topics and the most relevant words that use them, and label them according to the prevalent theme. These are recorded in a csv file and loaded in:
 
 ```{r}
 
+# Read in topics mapping data
+topics_mapping.dt <- read_csv("../dta/lda-topics.csv", col_types = "ic")
+
+```
+
+We extract the top 30 most relevant words and plot them as follows:
+
+  1. Compute the Jensen-Shannon divergence between each of the topics according to the differences in their word-topic probabilities and construct a distance matrix,
+  2. Apply principal coordinates analysis in order to project the distance matrix down to two dimensions.
+  3. Plot each word near the center of the topic mass and repel them from each other.
+
+```{r}
+
+posts.wtp %>% 
+  # Compute Jensen-Shannon
+  computeJensenShannonPCA() %>% {
+    
+    # Assign positions to top 30 most relevant words
+    left_join(
+      .,
+      word_relevance.dt %>% 
+        group_by(topic) %>% 
+        top_n(30, relevance) %>% 
+        ungroup(),
+      by = "topic"
+    ) -> topic_labelling_top30words.dt
+    
+    # Assign positions to topic labels
+    left_join(
+      .,
+      topics_mapping.dt,
+      by = "topic"
+    ) -> topic_labelling_topics.dt
+    
+    ggsave(
+      plot = {
+        topic_labelling_top30words.dt %>% 
+          ggplot(aes(x = x, y = y)) +
+          geom_text_repel(
+            aes(label = term, color = factor(topic), size = phi_kw * p_w), 
+            lineheight = 0.6, 
+            segment.size = NA,
+            box.padding = unit(0, "lines"),
+            force = 0.05,
+            family = "Roboto"
+          ) +
+          geom_text_repel(
+            data = topic_labelling_topics.dt,
+            aes(label = str_wrap(topic_name, 15), color = factor(topic)),
+            size = 2.25, lineheight = 0.7,
+            segment.size = 0.5, alpha = 0.7,
+            family = "Roboto", fontface = 2,
+            force = 0.3
+          ) +
+          scale_size_continuous(range = c(0.8, 4)) +
+          scale_color_manual(
+            values = rainbow(40) %>% 
+              adjustcolor(red.f = 0.6, green.f = 0.6, blue.f = 0.6)
+          ) +
+          theme(
+            axis.title = element_blank(),
+            axis.text  = element_blank(),
+            axis.ticks = element_blank(),
+            panel.grid = element_blank(),
+            panel.border = element_blank(),
+            plot.background = element_rect(fill = "#FAFAFA"),
+            legend.position = "none"
+          ) +
+          labs(
+            title = "PHILIPPINE NEWS LANDSCAPE",
+            subtitle = "Headlines and news summaries from Philippine news Facebook pages in the year 2016",
+            caption = 
+"DATA SOURCE: 
+Facebook Graph API
+
+CHART NOTES:
+  1. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
+  2. For each topic, the top 30 words in terms of relevance as defined in Sievert and Shirley (2014) are displayed
+  3. The centers of each topic mass were determined by applying principal components analysis to the distance matrix, with the Jensen-Shannon divergence as the distance measure. 
+      This layout is intended to display the degree of semantic distance.
+
+TJPALANCA.COM | TROY JAMES PALANCA"
+          )
+      },
+      filename = "../figs/01-news-landscape-map.png",
+      device = "png",
+      dpi = 600
+    )
+    
+  }
 
 ```
 
 
-### Exploratory Analyses
+
+
+
