@@ -1,41 +1,41 @@
-topic,topic_name
-1,Electoral Process
-2,Natural Disasters
-3,Criminal Acts
-4,Presidential Press Statements
-5,Aquino Administration
-6,Strife
-7,"Relationships, Work, & Family"
-8,Leila De Lima and Drug Allegations
-9,Election Campaign
-10,Financial Regulation and Crime
-11,International Terrorism
-12,Marcos Burial
-13,Economy
-14,Viral and Internet News
-15,South China Sea Dispute
-16,International News
-17,Filipino Showbiz
-18,City and Barangay News
-19,Boxing and Manny Pacquiao
-20,Science News
-21,War on Drugs
-22,Law Enforcement
-23,War on Drugs in Filipino
-24,"Poverty, Agriculture, & Development"
-25,Domestic Terrorism
-26,Transportation
-27,Foreign Policy
-28,President Duterte
-29,Technology News
-30,Women's Volleyball and Beauty Pageants
-31,Music
-32,NBA Basketball
-33,Overseas Filipino Workers
-34,Movies & Television
-35,Travel & Leisure
-36,Public Health
-37,Breaking News
-38,Legal Proceedings
-39,Holidays
-40,Geopolitics
+"topic","topic_name","broad_topic"
+"1","Electoral Process","Elections"
+"2","Weather and Natural Disasters","Weather"
+"3","Criminal Acts","Crime, Law, & Order"
+"4","Presidential Press Statements","Politics"
+"5","Aquino Administration","Politics"
+"6","Internal Conflict","Crime, Law, & Order"
+"7","Relationships, Work, & Family","Lifestyle and Entertainment"
+"8","Leila De Lima and Drug Allegations","Politics"
+"9","Election Campaign","Elections"
+"10","Financial Regulation and Crime","Economy"
+"11","International Terrorism","International News"
+"12","Marcos Burial","Marcos Burial"
+"13","Economy","Economy"
+"14","Viral and Internet News","Internet"
+"15","South China Sea Dispute","Foreign Relations"
+"16","International News","International News"
+"17","Filipino Showbiz","Lifestyle and Entertainment"
+"18","City and Barangay News","General News"
+"19","Filipino Sports","Lifestyle and Entertainment"
+"20","Science News","Science & Technology"
+"21","War on Drugs","Crime, Law, & Order"
+"22","Law Enforcement","Crime, Law, & Order"
+"23","War on Drugs in Filipino","Crime, Law, & Order"
+"24","Poverty, Agriculture, & Development","Economy"
+"25","Domestic Terrorism","Crime, Law, & Order"
+"26","Transportation","Transportation"
+"27","Foreign Policy","Foreign Relations"
+"28","President Duterte","Politics"
+"29","Technology News","Science & Technology"
+"30","Women's Volleyball and Beauty Pageants","Lifestyle and Entertainment"
+"31","Music","Lifestyle and Entertainment"
+"32","NBA Basketball","Lifestyle and Entertainment"
+"33","Overseas Filipino Workers","Economy"
+"34","Movies & Television","Lifestyle and Entertainment"
+"35","Travel & Leisure","Lifestyle and Entertainment"
+"36","Public Health","Economy"
+"37","Breaking News","General News"
+"38","Legal Proceedings","Politics"
+"39","Holidays","General News"
+"40","Geopolitics","Politics"
