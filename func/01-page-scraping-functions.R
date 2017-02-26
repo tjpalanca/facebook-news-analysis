@@ -68,8 +68,6 @@ callFBGraphAPI <- function(node = "", query = NULL, url = "",
   # Returns:
   #   Parsed resuts from the FB API call.
   
-  url ->> url_current
-  
   # Query string out until satisfactory result or error
   if (url != "") {
     result <- GET(url)
