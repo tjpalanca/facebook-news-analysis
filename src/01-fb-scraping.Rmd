@@ -121,8 +121,11 @@ map_df(
 
 # Manual correction for page that changed name
 top_100_fbpages.dt$page_name[
-  top_100_fbpages.dt$page_name == "news5Features"
+  top_100_fbpages.dt$page_name == "News5Features"
   ] <- "news5aksyon"
+
+# Cache out
+saveRDS(top_100_fbpages.dt, "../dta/04-news-pages.rds")
 
 ```
 
