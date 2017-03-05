@@ -51,7 +51,9 @@ suppressPackageStartupMessages({
   
   library(ggplot2)     # Static data visualization
   library(ggrepel)     # Repel text labels
-  library(highcharter) # Highcharts htmlwidgets
+  library(ggiraph)      # JS Visualization
+  library(scales)      # Scales
+  library(viridis)     # Viridis color scales
   
   library(httr)        # HTTP functions
   library(jsonlite)    # JSON parsing
@@ -69,19 +71,21 @@ if (interactive() & !str_detect(getwd(), "src")) setwd("src")
 # Theming
 quartzFonts(
   Roboto = 
-    c("RobotoSlab-Light",
-      "RobotoSlab-Bold",
-      "RobotoSlab-Regular",
-      "RobotoSlab-Thin")
+    c("Roboto-Light",
+      "Roboto-Bold",
+      "Roboto-Regular",
+      "Roboto-Thin")
 )
 
 theme_set(
   theme_bw(base_family = "Roboto", base_size = 14) +
     theme(
-      plot.title = element_text(face = "bold", size = 14, margin = margin(0, 0, 4, 0, "pt")),
+      plot.title = element_text(face = "bold", size = 14, 
+                                margin = margin(0, 0, 4, 0, "pt")),
       plot.subtitle = element_text(size = 12),
       plot.caption = element_text(size = 6, hjust = 0),
-      axis.title = element_text(size = 10)
+      axis.title = element_text(size = 10),
+      panel.border = element_blank()
     )
 )
 
@@ -127,6 +131,9 @@ if (file.exists("../cache/raw_data.rda")) {
   # Cache data
   save(posts.dt, reactions.dt, file = "../cache/raw_data.rda") 
 }
+  
+# Load top 100 fbpages dataset
+top_100_fbpages.dt <- readRDS("../dta/04-news-pages.rds")
 
 ```
 
@@ -480,7 +487,7 @@ crossValidatePerplexity(
 plotCrossValidatedPerplexity(posts_tokenized_perplexity_cv.dt) +
   annotate("segment", x = 40, xend = 40, y = -Inf, yend = Inf, color = "red") +
   labs(
-    title = "CROSS VALIDATION OF TOPIC MODELLING",
+    title = "RATE OF CROSS-VALIDATED PERPLEXITY CHANGE",
     subtitle = 
       "Change in LDA Perplexity, 5-fold cross validation, 2016 Facebook News Corpus",
     x = "Number of Topics (k)",
@@ -658,14 +665,14 @@ TJPALANCA.COM | TROY JAMES PALANCA"
 
 ![Facebook News Map](../figs/01-news-landscape-map.png)
 
-Now that we have labelled each topic, we produce sample documents classified to that topic for reference. We produce a random sample of 10 posts per topic.
+Now that we have labelled each topic, we produce sample documents classified to that topic for reference. We produce a random sample of 10 posts from the 300 highest probability fits per topic.
 
 ```{r Document classification}
 
 set.seed(9272)
 posts.dtp %>% 
   group_by(post_id = document) %>% 
-  summarise(topic = min(topic[gamma == max(gamma)])) %>% 
+  summarise(topic = min(topic[gamma == max(gamma)]), gamma = max(gamma)) %>% 
   ungroup() %>% 
   inner_join(posts.dt %>% select(post_id, attachment_title), by = "post_id") %>% 
   inner_join(topics_mapping.dt, by = "topic") %>% 
@@ -673,6 +680,7 @@ posts.dtp %>%
            paste0("Topic ", formatC(topic, flag = "0", width = 2), 
                   " - ", topic_name)) %>% 
   group_by(topic_name) %>% 
+  top_n(300, gamma) %>%
   sample_n(10) %>% 
   mutate(row = row_number()) %>% 
   ungroup() ->
@@ -734,66 +742,245 @@ TJPALANCA.COM | TROY JAMES PALANCA"
 
 ### Topic Trends
 
-#### Overall Composition
+We classify each document based on which topic has the highest probability. If one or more topics have equal probability, then the count is assigned equally to all the topics.
 
-We first view the overall composition of Philippine news during 2016 using a treemap visualization
-
-```{r}
+```{r Topic classification}
 
 posts.dtp %>% 
-  filter(gamma >= 0.1) %>% 
   group_by(document) %>% 
-  summarise(topic = min(topic[gamma == max(gamma)])) %>% 
+  filter(gamma == max(gamma)) %>% 
+  mutate(allocation = 1/n()) %>% 
+  ungroup() ->
+  posts_classification.dt
+
+```
+
+We construct a chart that allows us to explore topic trends, both in terms of document count and the total number of reactions on the articles of that particular topic.
+
+```{r Data for topic trends chart}
+
+posts_classification.dt %>% 
+  # Add post information
+  inner_join(
+    posts.dt %>% 
+      select(document = post_id, post_timestamp_utc, 
+             attachment_title, attachment_target_url) %>% 
+      mutate(post_period = 
+               post_timestamp_utc %>% 
+               with_tz("Asia/Manila") %>% 
+               floor_date("week")) %>% 
+      filter(year(post_period) == 2016),
+    by = "document"
+  ) %>% 
+  # Add topic information
+  left_join(topics_mapping.dt, by = "topic") %>%
+  # Summarise into tidy dataframe
+  group_by(post_period, topic_name) %>% 
+  summarise(
+    articles = sum(allocation),
+    sample_articles = paste0(sample(attachment_title, 3), collapse = "<br>")
+  ) %>% 
   ungroup() %>% 
-  inner_join(topics_mapping.dt, by = "topic") %>% 
+  mutate(
+    tooltip_text = 
+      paste0(
+        "<b>", topic_name, "</b> in period of <b>", post_period, "</b><br>",
+        "<b>Number of Articles:</b> ", comma(round(articles, 0)), "<br>",
+        "<b>Sample Articles:</b><br>", sample_articles
+      )
+  ) %>% 
+  # Mark peaks 
   group_by(topic_name) %>% 
-  summarise(count = n()) %>% 
+  mutate_at(
+    vars(articles), 
+    funs(mean = mean(.), sd = sd(.), zscore = (. - mean(.))/sd(.))
+  ) %>% 
   ungroup() %>% 
-  hchart(
-    "treemap",
-    hcaes(x = topic_name, value = count)
-  ) 
+  mutate_at(
+    vars(ends_with("zscore")),
+    funs(peak = . >	1.64)
+  ) %>% 
+  mutate(tooltip_text = str_replace_all(tooltip_text, "'", "")) ->
+  chart_topic_trends.dt
+
+```
+
+```{r Topic trends chart}
+
+{
+  chart_topic_trends.dt %>% 
+    ggplot(
+      aes(
+        x = post_period, 
+        y = factor(
+          topic_name, 
+          chart_topic_trends.dt %>% 
+            group_by(topic_name) %>% 
+            summarise(post_period = mean(post_period[peak], na.rm = TRUE)) %>% 
+            ungroup() %>% 
+            arrange(desc(post_period)) %$%
+            unique(topic_name)
+        )
+      )
+    ) +
+    geom_tile_interactive(aes(tooltip = tooltip_text, fill = log(articles))) +
+    geom_point_interactive(
+      mapping = aes(tooltip = tooltip_text),
+      data = chart_topic_trends.dt %>% filter(peak),
+      color = "red"
+    ) +
+    scale_fill_viridis(
+      labels = function(x) comma(round(exp(x))), 
+      name = "Number of Articles",
+      option = "plasma"
+    ) +
+    scale_x_datetime(expand = c(0, 0)) +
+    labs(
+      title = "ZEITGEIST", 
+      subtitle = "Topic distribution of news articles over time, 2016\n(Hover over each tile to see sample articles)",
+      caption = "
+DATA SOURCE: Facebook Graph API
+
+CHART NOTES:
+  1. Red dots indicate weeks where the number of articles exceeds 1.64 SD for that topic
+  2. Hover over each tile to see infomration and to see sample articles
+  3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
+  4. Articles were classified according to the topic that has the highest probability
+      "
+    ) +
+    theme(
+      legend.position   = "bottom",
+      legend.key.width  = unit(0.1, "npc"),
+      legend.background = element_rect("#fafafa"),
+      plot.background   = element_rect("#fafafa"),
+      plot.title        = element_text(size = 18),
+      plot.subtitle     = element_text(size = 8),
+      plot.caption      = element_text(size = 8),
+      panel.grid        = element_blank(),
+      panel.background  = element_rect("#fafafa"),
+      axis.title        = element_blank(),
+      axis.ticks        = element_blank(),
+      axis.text.y       = element_text(size = 8)
+    ) 
+} %>% 
+  ggiraph(
+    ggobj = .,
+    width_svg  = 8,
+    height_svg = 7,
+    tooltip_extra_css = "
+    font-family: Roboto; 
+    background-color: #000; 
+    color: #fff; font-size: 10px;"
+  )
+
+```
+
+### Topic Distribution by News Page
+
+A common accusation leveled against traditional news media is the amount of bias in reporting various topics. We try to explore the topic distribution of news articles.
+
+```{r Data for topic distribution chart}
+
+posts_classification.dt %>% 
+  inner_join(
+    posts.dt %>% select(document = post_id, news_page = page_name, attachment_title),
+    by = "document"
+  ) %>% 
+  inner_join(topics_mapping.dt, by = "topic") %>% 
+  group_by(news_page, topic_name) %>% 
+  summarise(
+    articles = sum(allocation),
+    sample_articles = 
+      paste0(
+        "<li>", sample(attachment_title, pmin(3, length(attachment_title))), "</li>",
+        collapse = "<br>"
+      )
+  ) %>% 
+  ungroup() %>% 
+  group_by(news_page) %>% 
+  mutate(perc_articles = articles/sum(articles)) %>% 
+  ungroup() %>% 
+  left_join(
+    top_100_fbpages.dt %>% select(news_page = page_name, page_title), 
+    by = "news_page"
+  ) %>% 
+  mutate(
+    tooltip_text = 
+      paste0(
+        "<b>", comma(round(articles, 0)), " (", percent(perc_articles), 
+        ") </b> of articles from <b>", str_replace_all(page_title, "\n", " "), 
+        "</b> fall under <b>", topic_name, "</b><br><br>Sample Articles:<br><ul>",
+        sample_articles, "</ul>"
+      ) %>% str_replace_all("'", "")
+  ) ->
+  news_page_distribution.dt
+
+news_page_distribution.dt %>% 
+  group_by(page_title) %>% 
+  summarise(articles = sum(articles)) %>% 
+  ungroup() %>% arrange(articles) %$%
+  unique(page_title) -> news_pages_arranged.ls
+
+news_page_distribution.dt %>% 
+  mutate(
+    page_title = factor(
+      str_wrap(page_title, 20), 
+      levels = str_wrap(news_pages_arranged.ls, 20)
+    )
+  ) -> news_page_distribution.dt
 
 ```
 
 
-#### Time Trends
-
-To view time trends, we aggregate the posts on a monthly basis and construct a streamgraph of the results. Cognizant that each document will probably contain different topics, we aggregate the document-topic probabilities instead of classifying each document into a topic then counting.
-
 ```{r}
+{
+  news_page_distribution.dt %>% 
+    ggplot(aes(x = page_title, y = perc_articles, fill = topic_name)) +
+    geom_bar_interactive(
+      aes(tooltip = tooltip_text),
+      position = position_stack(), 
+      stat = "identity", color = "darkgray"
+    ) +
+    scale_y_continuous(
+      name = "Percent of Articles", 
+      labels = percent,
+      expand = c(0, 0)
+    ) +
+    theme(
+      legend.position = "none",
+      axis.title.y = element_blank(),
+      legend.background = element_rect("#fafafa"),
+      plot.background   = element_rect("#fafafa"),
+      plot.subtitle     = element_text(size = 8),
+      plot.caption      = element_text(size = 8),
+      plot.title        = element_text(size = 18)
+    ) +
+    coord_flip() +
+    scale_fill_viridis(discrete = TRUE) +
+    labs(
+      title = "BIAS AND BALANCE",
+      subtitle = "Topic distribution of Facebook news articles per news page, 2016\n(Hover over each bar to see the topic and sample articles)",
+      caption = "
+DATA SOURCE: Facebook Graph API
 
-
-posts.dtp %>% 
-  filter(gamma >= 0.1) %>% 
-  group_by(document) %>% 
-  summarise(topic = min(topic[gamma == max(gamma)])) %>% 
-  ungroup() %>% 
-  inner_join(
-    posts.dt %>% 
-      select(document = post_id, post_timestamp_utc) %>% 
-      mutate(
-        post_period = 
-          post_timestamp_utc %>% 
-          with_tz("Asia/Manila") %>% 
-          floor_date("month")
-      ) %>% 
-      filter(post_period %>% year == 2016),
-    by = "document"
-  ) %>% 
-  group_by(topic, post_period) %>% 
-  summarise(num_documents = n()) %>% 
-  ungroup() %>% 
-  inner_join(topics_mapping.dt, by = "topic") ->
-  a
-
-a %>% 
-  streamgraph(
-    key   = topic_name,
-    value = num_documents,
-    date  = post_period,
-    offset = "expand"
+CHART NOTES:
+  1. Red dots indicate weeks where the number of articles exceeds 1.64 SD for that topic
+  2. Hover over each tile to see infomration and to see sample articles
+  3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
+  4. Articles were classified according to the topic that has the highest probability
+      "
+    )
+} %>% 
+  ggiraph(
+    ggobj = .,
+    width_svg = 12,
+    height_svg = 8,
+    tooltip_extra_css = "
+    font-family: Roboto; 
+    background-color: #000; 
+    color: #fff; font-size: 10px;"
   )
+
 ```
 
 
