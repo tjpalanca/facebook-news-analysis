@@ -779,7 +779,8 @@ posts_classification.dt %>%
   group_by(post_period, topic_name) %>% 
   summarise(
     articles = sum(allocation),
-    sample_articles = paste0(sample(attachment_title, 3), collapse = "<br>")
+    sample_articles = 
+      paste0("<li>", sample(attachment_title, 3), "</li>", collapse = "<br>")
   ) %>% 
   ungroup() %>% 
   mutate(
@@ -787,7 +788,7 @@ posts_classification.dt %>%
       paste0(
         "<b>", topic_name, "</b> in period of <b>", post_period, "</b><br>",
         "<b>Number of Articles:</b> ", comma(round(articles, 0)), "<br>",
-        "<b>Sample Articles:</b><br>", sample_articles
+        "<b>Sample Articles:</b><br><ul>", sample_articles, "</ul>"
       )
   ) %>% 
   # Mark peaks 
@@ -871,7 +872,8 @@ CHART NOTES:
     tooltip_extra_css = "
     font-family: Roboto; 
     background-color: #000; 
-    color: #fff; font-size: 10px;"
+    color: #fff; font-size: 10px;
+    padding: 5px;"
   ) -> chart_topic_trends.wdgt
 
 saveWidget(
@@ -973,10 +975,9 @@ news_page_distribution.dt %>%
 DATA SOURCE: Facebook Graph API
 
 CHART NOTES:
-  1. Red dots indicate weeks where the number of articles exceeds 1.64 SD for that topic
-  2. Hover over each tile to see infomration and to see sample articles
-  3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
-  4. Articles were classified according to the topic that has the highest probability
+  1. Hover over each tile to see infomration and to see sample articles
+  2. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
+  3. Articles were classified according to the topic that has the highest probability
       "
     )
 } %>% 
@@ -987,7 +988,8 @@ CHART NOTES:
     tooltip_extra_css = "
     font-family: Roboto; 
     background-color: #000; 
-    color: #fff; font-size: 10px;"
+    color: #fff; font-size: 10px;
+    padding: 5px;"
   ) -> chart_topic_distribution.wdgt
 
 saveWidget(
