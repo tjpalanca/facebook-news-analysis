@@ -884,9 +884,12 @@ saveWidget(
 )
 
 print(chart_topic_trends.wdgt)
+
 ```
 
 ### Topic Distribution by News Page
+
+#### Distribution 
 
 A common accusation leveled against traditional news media is the amount of bias in reporting various topics. We try to explore the topic distribution of news articles.
 
@@ -943,7 +946,7 @@ news_page_distribution.dt %>%
 ```
 
 
-```{r}
+```{r Topic distribution chart}
 {
   news_page_distribution.dt %>% 
     ggplot(aes(x = page_title, y = perc_articles, fill = topic_name)) +
@@ -1003,4 +1006,88 @@ print(chart_topic_distribution.wdgt)
 
 ```
 
+#### Topic Concentration
+
+```{r Data for topic concentration chart}
+
+{
+  news_page_distribution.dt %>% 
+    group_by(page_title) %>% 
+    arrange(desc(articles)) %>% 
+    summarise(
+      hh_index  = sum(perc_articles ^ 2),
+      t3_topics = paste0(topic_name %>% head(3), collapse = "<br>")
+    ) %>% 
+    ungroup() %>% 
+    arrange(hh_index) %>% 
+    mutate(page_title = factor(page_title, unique(page_title))) %>% 
+    ggplot(aes(x = page_title, y = hh_index * 100)) +
+    geom_bar_interactive(
+      aes(
+        tooltip = 
+          paste0("<b>Top Topics:</b><br>", t3_topics) %>% 
+          str_replace_all("'", "")
+      ),
+      stat = "identity", 
+      fill = c("#008B45")
+    ) +
+    geom_point_interactive(
+      aes(
+        tooltip = 
+          paste0("<b>Top Topics:</b><br>", t3_topics) %>% 
+          str_replace_all("'", "")
+      ),
+      color = "red", size = 3
+    ) +
+    geom_text(aes(label = comma(round(hh_index * 100, 1))), hjust = 1.5, 
+              color = "white", family = "Roboto") +
+    scale_y_log10(
+      name = "Herfindahl-Hirschman Index (HHI)\n(100 = most concentrated)",
+      expand = c(0, 0)
+    ) +
+    labs(
+      title = "TOPIC CONCENTRATION OF PHILIPPINE NEWS PAGES",
+      subtitle = "Herfindahl-Hirschman Index (HHI)",
+      caption = "
+DATA SOURCE: Facebook Graph API
+
+CHART NOTES:
+  1. Hover over each tile to see infomration and to see top topics
+  2. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
+  3. Articles were classified according to the topic that has the highest probability
+      "
+    ) +
+    coord_flip() +
+    theme(
+      axis.title.y       = element_blank(),
+      panel.grid.major.y = element_blank(),
+      plot.background    = element_rect("#fafafa"),
+      plot.subtitle      = element_text(size = 10),
+      plot.caption       = element_text(size = 8),
+      plot.title         = element_text(size = 16)
+    )
+} %>% 
+  ggiraph(
+    ggobj = .,
+    width_svg = 10,
+    height_svg = 8,
+    tooltip_extra_css = "
+    font-family: Roboto; 
+    background-color: #000; 
+    color: #fff; font-size: 16px;
+    padding: 5px;"
+  ) -> chart_topic_concentration.wdgt
+
+saveWidget(
+  widget = chart_topic_concentration.wdgt,
+  file = "../figs/05-topic-concentration.html",
+  selfcontained = FALSE,
+  libdir = "../figs/fig_libs"
+)
+
+print(chart_topic_concentration.wdgt)
+
+```
+
+### Reactions to News Topics
 
