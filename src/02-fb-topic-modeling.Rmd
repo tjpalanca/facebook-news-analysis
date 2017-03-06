@@ -51,9 +51,10 @@ suppressPackageStartupMessages({
   
   library(ggplot2)     # Static data visualization
   library(ggrepel)     # Repel text labels
-  library(ggiraph)      # JS Visualization
+  library(ggiraph)     # GGplot interactive
   library(scales)      # Scales
   library(viridis)     # Viridis color scales
+  library(htmlwidgets) # JS visuliaztions
   
   library(httr)        # HTTP functions
   library(jsonlite)    # JSON parsing
@@ -871,8 +872,16 @@ CHART NOTES:
     font-family: Roboto; 
     background-color: #000; 
     color: #fff; font-size: 10px;"
-  )
+  ) -> chart_topic_trends.wdgt
 
+saveWidget(
+  widget = chart_topic_trends.wdgt,
+  file = "../figs/03-topic-trends.html",
+  selfcontained = FALSE,
+  libdir = "../figs/fig_libs"
+)
+
+print(chart_topic_trends.wdgt)
 ```
 
 ### Topic Distribution by News Page
@@ -979,7 +988,16 @@ CHART NOTES:
     font-family: Roboto; 
     background-color: #000; 
     color: #fff; font-size: 10px;"
-  )
+  ) -> chart_topic_distribution.wdgt
+
+saveWidget(
+  widget = chart_topic_distribution.wdgt,
+  file = "../figs/04-topic-distribution-pages.html",
+  selfcontained = FALSE,
+  libdir = "../figs/fig_libs"
+)
+
+print(chart_topic_distribution.wdgt)
 
 ```
 
