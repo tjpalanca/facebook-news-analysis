@@ -96,43 +96,39 @@ source("../func/02-topic-modelling-functions.R")
 
 ```
 
+```{r echo = FALSE}
+
+load("../cache/final_data.rda")
+knitr::opts_chunk$set(eval = FALSE, warning = FALSE)
+
+```
+
+
 ## Data Import
 
 From the data that we have extracted via the Facebook Graph API (details can be found [here](http://www.tjpalanca.com/static/20170208-fb-scraping.html)).
 
 ```{r Data extraction}
 
-if (file.exists("../cache/raw_data.rda")) {
-  load("../cache/raw_data/rda")
-} else {
-  # Create linkage to database
-  src_sqlite(
-    path   = "../dta/03-fbpages.sqlite",
-    create = FALSE
-  ) -> fbpages.sqlite
-  
-  # Define required tables
-  fbpages.sqlite %>% tbl("fact_posts") -> posts.sql
-  fbpages.sqlite %>% tbl("fact_posts_attachments") -> attachments.sql
-  fbpages.sqlite %>% tbl("fact_posts_reactions") -> reactions.sql
-  
-  # Load data
-  posts.sql %>% 
-    left_join(attachments.sql, by = c("post_id" = "object_id")) %>% 
-    collect(n = Inf) ->
-    posts.dt
-  
-  reactions.sql %>% 
-    group_by(object_id, reaction_type) %>% 
-    summarise(count = n()) %>% 
-    ungroup() %>% 
-    collect(n = Inf) ->
-    reactions.dt
-  
-  # Cache data
-  save(posts.dt, reactions.dt, file = "../cache/raw_data.rda") 
-}
-  
+# Create linkage to database
+src_sqlite(
+  path   = "../dta/03-fbpages.sqlite",
+  create = FALSE
+) -> fbpages.sqlite
+
+# Define required tables
+fbpages.sqlite %>% tbl("fact_posts") -> posts.sql
+fbpages.sqlite %>% tbl("fact_posts_attachments") -> attachments.sql
+
+# Load data
+posts.sql %>% 
+  left_join(attachments.sql, by = c("post_id" = "object_id")) %>% 
+  collect(n = Inf) ->
+  posts.dt
+
+# Cache data
+save(posts.dt, reactions.dt, file = "../cache/raw_data.rda") 
+
 # Load top 100 fbpages dataset
 top_100_fbpages.dt <- readRDS("../dta/04-news-pages.rds")
 
