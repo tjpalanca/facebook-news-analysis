@@ -2,7 +2,7 @@
 title: "Facebook Topic Modeling"
 subtitle: "tjpalanca.com"
 author: "TJ Palanca"
-date: "4 Feb 2017"
+date: "04 Feb 2017"
 output: 
   html_document:
     toc: true
