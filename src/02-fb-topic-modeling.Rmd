@@ -29,7 +29,7 @@ This model views the text generation process as conforming to the following char
 
 LDA is the algorithm that simultaneously maps words to topics and topics to documents. One of the important considerations of this model is that the number of topics $k$ must be known a-priori.
 
-See [here](https://www.youtube.com/watch?v=3mHy4OSyRf0) for an excellent detailed video explanation of the LDA algorithm, [here](http://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf) for the seminal paper on the algorithm, and [here](https://cran.r-project.org/web/packages/topicmodels/vignettes/topicmodels.pdf) for the specific implementation that I am implementing in R.
+See [here](https://www.youtube.com/watch?v=3mHy4OSyRf0) for an excellent detailed video explanation of the LDA algorithm, [here](http://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf) for the seminal paper on the algorithm, and [here](https://cran.r-project.org/web/packages/topicmodels/vignettes/topicmodels.pdf) for the specific implementation in R.
 
 ## Preliminaries
 
@@ -461,7 +461,7 @@ posts_tokenized.dt %>%
 
 #### Setting the number of topics
 
-In order to determine the ideal number of topics $k$, we perform 5-fold cross validation on [perplexity](https://en.wikipedia.org/wiki/Perplexity) at different values of $k$. We then compute the rate of perplexity change (RPC) For more information on this method of selection, see [Zhao et al. (2015)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4597325/).
+In order to determine the ideal number of topics $k$, we perform 5-fold cross validation on [perplexity](https://en.wikipedia.org/wiki/Perplexity) at different values of $k$. We then compute the rate of perplexity change (RPC) and use the elbow point as the ideal number of topics. This method is detailed in Zhao et al (2015)^[[Zhao et al (2015). A heuristic approach to determine an appropriate number of topics in topic modeling. *BMC Bioinformatics 2015(16)*.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4597325/)].
 
 On a 10% random sample, we estimate the perplexity using 5-fold cross validation for different values of $k$.
 
@@ -530,7 +530,7 @@ posts.lda %>% tidy("gamma") -> posts.dtp
 
 We can then assess the word-topic probabilities in order to get an idea of the topic that is most.
 
-Since we have over 30,000 unique terms in the corpus, we need to extract the top few words that most uniquely define each topic, so that we can more easily visualize and label them. We use the measure of relevance defined by [Sievert and Shirley (2014)](http://nlp.stanford.edu/events/illvi2014/papers/sievert-illvi2014.pdf). Relevance of term $w$ to topic $k$ given a weight parameter $\lambda$ between 0 and 1 $r(w, k | \lambda)$ is computed as:
+Since we have over 30,000 unique terms in the corpus, we need to extract the top few words that most uniquely define each topic, so that we can more easily visualize and label them. We use the measure of relevance defined by Sievert and Shirley (2014)^[[Sievert and Shirley (2014). LDAvis: A method for visualizing and interpreting topics. *Stanford University.*](http://nlp.stanford.edu/events/illvi2014/papers/sievert-illvi2014.pdf)]. Relevance of term $w$ to topic $k$ given a weight parameter $\lambda$ between 0 and 1 $r(w, k | \lambda)$ is computed as:
 
 $$
 r(w, k | \lambda) = \lambda\log(\phi_{kw}) + (1-\lambda)\log(\frac{\phi_{kw}}{p_w})
