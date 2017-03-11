@@ -48,6 +48,8 @@ suppressPackageStartupMessages({
 # Set proper working directory
 if(interactive() & !str_detect(getwd(), "src")) setwd("src")
 
+knitr::opts_chunk$set(eval = FALSE)
+
 ```
 
 ## Scraping 
@@ -68,7 +70,7 @@ source("../func/01-page-scraping-functions.R")
 
 In order to prevent bias in selecting the pages to be scraped, we rely on [Socialbaker's Ranking of Top 100 Media Facebook Pages in the Philippines by Total Likes](https://www.socialbakers.com/statistics/facebook/pages/total/philippines/media/page-1-5/).
 
-```{r Top 100 Facebook Pages, cache=TRUE, message=FALSE}
+```{r Top 100 Facebook Pages, cache=TRUE, message=FALSE, eval = TRUE}
 
 map_df(
   c(
@@ -129,7 +131,7 @@ saveRDS(top_100_fbpages.dt, "../dta/04-news-pages.rds")
 
 ```
 
-```{r Display Top 100 Facebook Pages}
+```{r Display Top 100 Facebook Pages, eval = TRUE}
 
 datatable(top_100_fbpages.dt)
 
