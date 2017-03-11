@@ -518,7 +518,7 @@ LDA(
 
 ```
 
-Training took 2 hours on the full dataset. We extract the word-topic probabilies, and the document-topic probabilities produced by the model.
+Training took 2 hours on the full dataset. We extract the word-topic probabilities, and the document-topic probabilities produced by the model.
 
 ```{r}
 
@@ -800,7 +800,7 @@ posts_classification.dt %>%
   ungroup() %>% 
   mutate_at(
     vars(ends_with("zscore")),
-    funs(peak = . >	1.64)
+    funs(peak = . >	1.96)
   ) %>% 
   mutate(tooltip_text = str_replace_all(tooltip_text, "'", "")) ->
   chart_topic_trends.dt
@@ -844,7 +844,7 @@ posts_classification.dt %>%
 DATA SOURCE: Facebook Graph API
 
 CHART NOTES:
-  1. Red dots indicate weeks where the number of articles exceeds 1.64 SD for that topic
+  1. Red dots indicate weeks where the number of articles exceeds 1.96 SD above mean for that topic
   2. Hover over each tile to see infomration and to see sample articles
   3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
   4. Articles were classified according to the topic that has the highest probability
@@ -886,6 +886,19 @@ saveWidget(
 print(chart_topic_trends.wdgt)
 
 ```
+
+We can see here how 2016 progressed in terms of "hot topics" in each week:
+
+  * Jan - We started the year with **Filipino Showbiz** leading off from MMFF 2015
+  * Feb to Mar - a lull in the news save for a bout of local election related violence showing up in **City and Barangay News**.
+  * Apr - the RCBC Money Laundering Scandal topped the charts in **Financial Regulation and Crime**,
+  * May - entirely dedicated to the **Election Campaign** and the final election week contained many articles about the **Electoral Process**
+  * Jun - after the election of **President Duterte**, the news was filled with details of his stunning rise to power and what the new administration will do, **NBA Basketball** also dominated in June as the finals were taking place,
+  * Jul to Aug - a mixed bag, covering negotiations taking place with groups causing **Internal Conflict**, drug lists being released in **Law Enforcement**, and a fresh new bout of **Domestic Terrorism** from the Abu Sayyaf Group,
+  * Sep - **Technology News** peaked with the release of the new iPhone 7 and Apple Watch, the **War on Drugs** started to come under fire from critics, with staunch critic **Leila De Lima and Drug Allegations** surfacing during the last week,
+  * Oct - **Foreign Policy** was a hot topic, with President Duterte pivoting to align more closely with China, and raising concerns about the viability of the claim in the South China Sea,
+  * Nov - the **Marcos Burial** was top news for 4 straight weeks
+  * Dec - we round out the rather tumultuous year with many articles about **Relationships, Work and Family**, **Science News**; also, the annual Christmas rush has brought articles related to **Transportation**.
 
 ### Topic Distribution by News Page
 
@@ -945,7 +958,6 @@ news_page_distribution.dt %>%
 
 ```
 
-
 ```{r Topic distribution chart}
 {
   news_page_distribution.dt %>% 
@@ -979,8 +991,9 @@ DATA SOURCE: Facebook Graph API
 
 CHART NOTES:
   1. Hover over each tile to see infomration and to see sample articles
-  2. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
-  3. Articles were classified according to the topic that has the highest probability
+  2. The news pages are arranged in descending order in terms of number of articles
+  3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
+  4. Articles were classified according to the topic that has the highest probability
       "
     )
 } %>% 
@@ -1006,9 +1019,18 @@ print(chart_topic_distribution.wdgt)
 
 ```
 
+A few observations from the chart:
+
+  * Most major news articles have an even balance of news
+  * GMA News focused a lot on Filipino Showbiz, ABS-CBN focused on Movies & Television
+  * INQUIRER.net focused Law Enforcement and the War on Drugs
+  * Oddly enough, ANC 24/7's articles were mostly about Women's Volleyball and Beauty Pageants
+  
 #### Topic Concentration
 
-```{r Data for topic concentration chart}
+A common criticism leveled against news media sites is that there is undue emphasis on a particular topic. One way to measure concentration across different topics is the Herfindahl-Hirschman Index (HHI) which is simply $\Sigma_n{s^2}$ where $s$ is the share of each topic.
+
+```{r Topic concentration chart}
 
 {
   news_page_distribution.dt %>% 
@@ -1089,5 +1111,8 @@ print(chart_topic_concentration.wdgt)
 
 ```
 
-### Reactions to News Topics
+The most concentrated were news pages that focused mainly on Filipino subjects (which got lumped together), but apart from that the interesting findings are:
 
+  * SunStar News, a Cebu based newspaper, focused mainly on local news, particularly in Visayas and Mindanao.
+  * Yahoo Philippines almost always just talked about entertainment topics, and MSN Philippines focused on lifestyle topics.
+  * Main news outlets, contrary to the comments posted on these pages, were the least concentrated and had the widest topic distribution.
