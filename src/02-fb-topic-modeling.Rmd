@@ -756,6 +756,7 @@ We construct a chart that allows us to explore topic trends, both in terms of do
 
 ```{r Data for topic trends chart}
 
+set.seed(7292)
 posts_classification.dt %>% 
   # Add post information
   inner_join(
@@ -803,7 +804,7 @@ posts_classification.dt %>%
 
 ```
 
-```{r Topic trends chart}
+```{r Topic trends chart, eval = TRUE}
 
 {
   chart_topic_trends.dt %>% 
@@ -844,6 +845,8 @@ CHART NOTES:
   2. Hover over each tile to see infomration and to see sample articles
   3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
   4. Articles were classified according to the topic that has the highest probability
+
+TROY JAMES PALANCA | TJPALANCA.COM
       "
     ) +
     theme(
@@ -853,7 +856,7 @@ CHART NOTES:
       plot.background   = element_rect("#fafafa"),
       plot.title        = element_text(size = 18),
       plot.subtitle     = element_text(size = 8),
-      plot.caption      = element_text(size = 8),
+      plot.caption      = element_text(size = 7),
       panel.grid        = element_blank(),
       panel.background  = element_rect("#fafafa"),
       axis.title        = element_blank(),
@@ -876,10 +879,10 @@ saveWidget(
   widget = chart_topic_trends.wdgt,
   file = "../figs/03-topic-trends.html",
   selfcontained = FALSE,
-  libdir = "../figs/fig_libs"
+  libdir = "../figs/js"
 )
 
-print(chart_topic_trends.wdgt)
+chart_topic_trends.wdgt
 
 ```
 
@@ -904,6 +907,7 @@ A common accusation leveled against traditional news media is the amount of bias
 
 ```{r Data for topic distribution chart}
 
+set.seed(7292)
 posts_classification.dt %>% 
   inner_join(
     posts.dt %>% select(document = post_id, news_page = page_name, attachment_title),
@@ -954,7 +958,7 @@ news_page_distribution.dt %>%
 
 ```
 
-```{r Topic distribution chart}
+```{r Topic distribution chart, eval = TRUE}
 {
   news_page_distribution.dt %>% 
     ggplot(aes(x = page_title, y = perc_articles, fill = topic_name)) +
@@ -974,7 +978,7 @@ news_page_distribution.dt %>%
       legend.background = element_rect("#fafafa"),
       plot.background   = element_rect("#fafafa"),
       plot.subtitle     = element_text(size = 8),
-      plot.caption      = element_text(size = 8),
+      plot.caption      = element_text(size = 7),
       plot.title        = element_text(size = 18)
     ) +
     coord_flip() +
@@ -990,6 +994,8 @@ CHART NOTES:
   2. The news pages are arranged in descending order in terms of number of articles
   3. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
   4. Articles were classified according to the topic that has the highest probability
+
+TROY JAMES PALANCA | TJPALANCA.COM
       "
     )
 } %>% 
@@ -1008,10 +1014,10 @@ saveWidget(
   widget = chart_topic_distribution.wdgt,
   file = "../figs/04-topic-distribution-pages.html",
   selfcontained = FALSE,
-  libdir = "../figs/fig_libs"
+  libdir = "../figs/js"
 )
 
-print(chart_topic_distribution.wdgt)
+chart_topic_distribution.wdgt
 
 ```
 
@@ -1026,7 +1032,7 @@ A few observations from the chart:
 
 A common criticism leveled against news media sites is that there is undue emphasis on a particular topic. One way to measure concentration across different topics is the Herfindahl-Hirschman Index (HHI) which is simply $\Sigma_n{s^2}$ where $s$ is the share of each topic.
 
-```{r Topic concentration chart}
+```{r Topic concentration chart, eval = TRUE}
 
 {
   news_page_distribution.dt %>% 
@@ -1049,14 +1055,6 @@ A common criticism leveled against news media sites is that there is undue empha
       stat = "identity", 
       fill = c("#008B45")
     ) +
-    geom_point_interactive(
-      aes(
-        tooltip = 
-          paste0("<b>Top Topics:</b><br>", t3_topics) %>% 
-          str_replace_all("'", "")
-      ),
-      color = "red", size = 3
-    ) +
     geom_text(aes(label = comma(round(hh_index * 100, 1))), hjust = 1.5, 
               color = "white", family = "Roboto") +
     scale_y_log10(
@@ -1073,6 +1071,8 @@ CHART NOTES:
   1. Hover over each tile to see infomration and to see top topics
   2. Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics
   3. Articles were classified according to the topic that has the highest probability
+
+TROY JAMES PALANCA | TJPALANCA.COM
       "
     ) +
     coord_flip() +
@@ -1100,10 +1100,10 @@ saveWidget(
   widget = chart_topic_concentration.wdgt,
   file = "../figs/05-topic-concentration.html",
   selfcontained = FALSE,
-  libdir = "../figs/fig_libs"
+  libdir = "../figs/js"
 )
 
-print(chart_topic_concentration.wdgt)
+chart_topic_concentration.wdgt
 
 ```
 
