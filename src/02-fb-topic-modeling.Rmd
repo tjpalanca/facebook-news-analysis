@@ -9,7 +9,7 @@ output:
     toc_float: true
     theme: "lumen"
     highlight: "tango"
-    code_folding: hide
+    code_folding: show
 ---
 
 ## Background
