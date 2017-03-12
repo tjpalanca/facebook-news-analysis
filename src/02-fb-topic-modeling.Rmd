@@ -10,6 +10,7 @@ output:
     theme: "lumen"
     highlight: "tango"
     code_folding: show
+    self_contained: true
 ---
 
 ## Background
