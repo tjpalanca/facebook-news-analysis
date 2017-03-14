@@ -854,7 +854,7 @@ TROY JAMES PALANCA | TJPALANCA.COM
       legend.position   = "bottom",
       legend.key.width  = unit(0.1, "npc"),
       legend.background = element_rect("#fafafa"),
-      plot.background   = element_rect("#fafafa"),
+      plot.background   = element_rect("#fafafa", "#fafafa"),
       plot.title        = element_text(size = 18),
       plot.subtitle     = element_text(size = 8),
       plot.caption      = element_text(size = 7),
@@ -867,8 +867,9 @@ TROY JAMES PALANCA | TJPALANCA.COM
 } %>% 
   ggiraph(
     ggobj = .,
-    width_svg  = 8,
-    height_svg = 7,
+    # width_svg  = 8,
+    # height_svg = 7,
+    width = 1,
     tooltip_extra_css = "
     font-family: Roboto; 
     background-color: #000; 
@@ -880,7 +881,8 @@ saveWidget(
   widget = chart_topic_trends.wdgt,
   file = "../figs/03-topic-trends.html",
   selfcontained = FALSE,
-  libdir = "../figs/js"
+  libdir = "../figs/js",
+  background = "#fafafa"
 )
 
 chart_topic_trends.wdgt
@@ -977,7 +979,7 @@ news_page_distribution.dt %>%
       legend.position = "none",
       axis.title.y = element_blank(),
       legend.background = element_rect("#fafafa"),
-      plot.background   = element_rect("#fafafa"),
+      plot.background   = element_rect("#fafafa", "#fafafa"),
       plot.subtitle     = element_text(size = 8),
       plot.caption      = element_text(size = 7),
       plot.title        = element_text(size = 18)
@@ -1004,6 +1006,7 @@ TROY JAMES PALANCA | TJPALANCA.COM
     ggobj = .,
     width_svg = 12,
     height_svg = 8,
+    width = 1,
     tooltip_extra_css = "
     font-family: Roboto; 
     background-color: #000; 
@@ -1015,7 +1018,8 @@ saveWidget(
   widget = chart_topic_distribution.wdgt,
   file = "../figs/04-topic-distribution-pages.html",
   selfcontained = FALSE,
-  libdir = "../figs/js"
+  libdir = "../figs/js",
+  background = "#fafafa"
 )
 
 chart_topic_distribution.wdgt
@@ -1080,7 +1084,7 @@ TROY JAMES PALANCA | TJPALANCA.COM
     theme(
       axis.title.y       = element_blank(),
       panel.grid.major.y = element_blank(),
-      plot.background    = element_rect("#fafafa"),
+      plot.background   = element_rect("#fafafa", "#fafafa"),
       plot.subtitle      = element_text(size = 10),
       plot.caption       = element_text(size = 8),
       plot.title         = element_text(size = 16)
@@ -1090,6 +1094,7 @@ TROY JAMES PALANCA | TJPALANCA.COM
     ggobj = .,
     width_svg = 10,
     height_svg = 8,
+    width = 1,
     tooltip_extra_css = "
     font-family: Roboto; 
     background-color: #000; 
@@ -1101,7 +1106,8 @@ saveWidget(
   widget = chart_topic_concentration.wdgt,
   file = "../figs/05-topic-concentration.html",
   selfcontained = FALSE,
-  libdir = "../figs/js"
+  libdir = "../figs/js",
+  background = "#fafafa"
 )
 
 chart_topic_concentration.wdgt
