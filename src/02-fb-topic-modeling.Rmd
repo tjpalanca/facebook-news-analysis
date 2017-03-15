@@ -480,7 +480,7 @@ crossValidatePerplexity(
 
 ```
 
-```{r Plot cross validation results}
+```{r Plot cross validation results, eval = TRUE}
 
 plotCrossValidatedPerplexity(posts_tokenized_perplexity_cv.dt) +
   annotate("segment", x = 40, xend = 40, y = -Inf, yend = Inf, color = "red") +
@@ -886,6 +886,61 @@ saveWidget(
 )
 
 chart_topic_trends.wdgt
+
+```
+
+```{r Topic trends line chart, eval = TRUE}
+
+{ 
+  chart_topic_trends.dt %>%
+  select(post_period, topic_name, articles) %>% 
+  mutate(data_id = row_number() %>% as.character()) %>% 
+  ggplot(aes(x = post_period, y = articles)) +
+  geom_path_interactive(
+    aes(group = topic_name, 
+        tooltip = str_replace_all(topic_name, "'", ""),
+        data_id = data_id), 
+    color = "gray"
+  ) +
+    scale_y_continuous(labels = comma) +
+    labs(
+      title = "PEAKS AND TROUGHS",
+      subtitle = "Hover over each line to see the trend of news articles for a particular topic",
+      y = "Number of Articles"
+    ) +
+    theme(
+      plot.background   = element_rect("#fafafa", "#fafafa"),
+      plot.title        = element_text(size = 18),
+      plot.subtitle     = element_text(size = 8),
+      plot.caption      = element_text(size = 7),
+      panel.grid        = element_blank(),
+      panel.background  = element_rect("#fafafa"),
+      axis.title.x      = element_blank(),
+      axis.text.y       = element_text(size = 8)
+    )
+} %>% 
+  ggiraph(
+    ggobj = .,
+    hover_css = "stroke: red; stroke-width: 3px;",
+    width = 1,
+    width_svg = 8,
+    height_svg = 4,
+    tooltip_extra_css = "
+    font-family: Roboto; 
+    background-color: #000; 
+    color: #fff; font-size: 10px;
+    padding: 5px;"
+  ) -> chart_trends_line.wdgt
+
+saveWidget(
+  widget = chart_topic_trends.wdgt,
+  file = "../figs/06-topic-trends-line.html",
+  selfcontained = FALSE,
+  libdir = "../figs/js",
+  background = "#fafafa"
+)
+
+chart_trends_line.wdgt
 
 ```
 
