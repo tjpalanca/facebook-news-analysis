@@ -933,7 +933,7 @@ chart_topic_trends.wdgt
   ) -> chart_trends_line.wdgt
 
 saveWidget(
-  widget = chart_topic_trends.wdgt,
+  widget = chart_trends_line.wdgt,
   file = "../figs/06-topic-trends-line.html",
   selfcontained = FALSE,
   libdir = "../figs/js",
