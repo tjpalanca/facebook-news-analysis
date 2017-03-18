@@ -56,6 +56,7 @@ suppressPackageStartupMessages({
   library(scales)      # Scales
   library(viridis)     # Viridis color scales
   library(htmlwidgets) # JS visuliaztions
+  library(htmltools)   # Arbitrary html
   
   library(httr)        # HTTP functions
   library(jsonlite)    # JSON parsing
@@ -875,6 +876,12 @@ TROY JAMES PALANCA | TJPALANCA.COM
     background-color: #000; 
     color: #fff; font-size: 10px;
     padding: 5px;"
+  ) %>% 
+  prependContent(
+    tags$link(
+      href = "https://fonts.googleapis.com/css?family=Roboto:400,700", 
+      rel = "stylesheet"
+    )
   ) -> chart_topic_trends.wdgt
 
 saveWidget(
@@ -930,6 +937,12 @@ chart_topic_trends.wdgt
     background-color: #000; 
     color: #fff; font-size: 10px;
     padding: 5px;"
+  ) %>% 
+  prependContent(
+    tags$link(
+      href = "https://fonts.googleapis.com/css?family=Roboto:400,700", 
+      rel = "stylesheet"
+    )
   ) -> chart_trends_line.wdgt
 
 saveWidget(
@@ -1067,6 +1080,12 @@ TROY JAMES PALANCA | TJPALANCA.COM
     background-color: #000; 
     color: #fff; font-size: 10px;
     padding: 5px;"
+  ) %>% 
+  prependContent(
+    tags$link(
+      href = "https://fonts.googleapis.com/css?family=Roboto:400,700", 
+      rel = "stylesheet"
+    )
   ) -> chart_topic_distribution.wdgt
 
 saveWidget(
@@ -1155,6 +1174,12 @@ TROY JAMES PALANCA | TJPALANCA.COM
     background-color: #000; 
     color: #fff; font-size: 16px;
     padding: 5px;"
+  ) %>% 
+  prependContent(
+    tags$link(
+      href = "https://fonts.googleapis.com/css?family=Roboto:400,700", 
+      rel = "stylesheet"
+    )
   ) -> chart_topic_concentration.wdgt
 
 saveWidget(
