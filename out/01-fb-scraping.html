@@ -305,7 +305,7 @@ div.tocify {
 })
 
 <span class="co"># Set proper working directory</span>
-if(<span class="kw">interactive</span>() &amp;<span class="st"> </span>!<span class="kw">str_detect</span>(<span class="kw">getwd</span>(), <span class="st">&quot;src&quot;</span>)) <span class="kw">setwd</span>(<span class="st">&quot;src&quot;</span>)
+if(!<span class="kw">str_detect</span>(<span class="kw">getwd</span>(), <span class="st">&quot;src&quot;</span>)) <span class="kw">setwd</span>(<span class="st">&quot;src&quot;</span>)
 
 knitr::opts_chunk$<span class="kw">set</span>(<span class="dt">eval =</span> <span class="ot">FALSE</span>)</code></pre></div>
 </div>

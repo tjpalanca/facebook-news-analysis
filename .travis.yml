@@ -28,9 +28,7 @@ r_packages:
   - topicmodels
   - proxy
   - rvest
-  - tibble
   - DT
   - rmarkdown
 os:
-  - linux
   - osx

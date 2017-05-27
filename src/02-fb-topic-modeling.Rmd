@@ -69,7 +69,7 @@ suppressPackageStartupMessages({
 })
 
 # Set proper working directory
-if (interactive() & !str_detect(getwd(), "src")) setwd("src")
+if (!str_detect(getwd(), "src")) setwd("src")
 
 # Theming
 quartzFonts(

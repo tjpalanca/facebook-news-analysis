@@ -39,5 +39,4 @@ Imports:
     topicmodels,
     proxy,
     rvest,
-    tibble,
     DT
