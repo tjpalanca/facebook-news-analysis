@@ -1,0 +1,43 @@
+Title: Facebook News Analysis
+Version: 1.1.0
+Date: 2016-09-21
+Author: Troy James Palanca [aut, cre]
+Authors@R: as.person(c(
+    "Troy James Palanca <mail@tjpalanca.com> [aut, cre]"
+  ))
+Maintainer: Troy James Palanca <mail@tjpalanca.com>
+Description: The Philippines is the social media capital of the world. According to the Huffington Post, "from a global average of 4.4 hours/day, the Filipino spends an average of 6.3 hours/day online via laptop and 3.3 hours/day via mobile." It's then no surprise that social media has become one of the main news sources for many Filipinos, and with a tumultuous 2016 Presidential Election, many issues have cropped up, from the newly elected President hitting media for "biased" news, introducing legislation around the spread of "fake news" on social media, to a campaign engineering a social media machine designed to weaponize hatred. Apart from what we can gather via investigative journalism, how much do we really know about the Philippine news landscape on social media? This series (and yes, I intend to finish this one) is intended to explore the phenomenon using data.
+License: LICENSE.md
+URL: https://github.com/tjpalanca/facebook-news-analysis
+BugReports: https://github.com/tjpalanca/facebook-news-analysis
+Depends:
+    R (>= 3.4.0)
+Imports:
+    rmarkdown,
+    dplyr,
+    stringr,
+    lubridate,
+    purrr,
+    tidyr,
+    magrittr,
+    pushoverr,
+    doMC,
+    readr,
+    tibble,
+    ggplot2,
+    ggrepel,
+    ggiraph,
+    scales,
+    viridis,
+    htmlwidgets,
+    htmltools,
+    httr,
+    jsonlite,
+    tidytext,
+    hunspell,
+    stringdist,
+    topicmodels,
+    proxy,
+    rvest,
+    tibble,
+    DT

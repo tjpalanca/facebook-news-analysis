@@ -1,0 +1,36 @@
+language: r
+sudo: false
+script: make all
+cache: packages
+r_packages:
+  - dplyr
+  - stringr
+  - lubridate
+  - purrr
+  - tidyr
+  - magrittr
+  - pushoverr
+  - doMC
+  - readr
+  - tibble
+  - ggplot2
+  - ggrepel
+  - ggiraph
+  - scales
+  - viridis
+  - htmlwidgets
+  - htmltools
+  - httr
+  - jsonlite
+  - tidytext
+  - hunspell
+  - stringdist
+  - topicmodels
+  - proxy
+  - rvest
+  - tibble
+  - DT
+  - rmarkdown
+os:
+  - linux
+  - osx
