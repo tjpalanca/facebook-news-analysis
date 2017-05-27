@@ -2,7 +2,7 @@
 
 [![Travis](https://img.shields.io/travis/tjpalanca/facebook-news-analysis.svg)]() [![GitHub issues](https://img.shields.io/github/issues/tjpalanca/facebook-news-analysis.svg)]() [![GitHub forks](https://img.shields.io/github/forks/tjpalanca/facebook-news-analysis.svg?style=social&label=Fork)]() [![GitHub stars](https://img.shields.io/github/stars/tjpalanca/facebook-news-analysis.svg?style=social&label=Star)]()
 
-![Facebook News Landscape](https://github.com/tjpalanca/facebook-news-analysis/raw/master/figs/01-news-landscape-map.png)
+![Facebook News Landscape](https://github.com/tjpalanca/facebook-news-analysis/blob/master/figs/01-news-landscape-map.png?raw=true)
 
 ## Motivation
 
