@@ -57,6 +57,9 @@ suppressPackageStartupMessages({
   library(viridis)     # Viridis color scales
   library(htmlwidgets) # JS visuliaztions
   library(htmltools)   # Arbitrary html
+  library(ggjoy)       # Create joyplots
+  library(gganimate)   # Animating ggplots
+  library(tweenr)      # Tweening charts
   
   library(httr)        # HTTP functions
   library(jsonlite)    # JSON parsing
@@ -98,7 +101,7 @@ source("../func/02-topic-modelling-functions.R")
 
 ```
 
-```{r echo = FALSE}
+```{r caching, echo = FALSE}
 
 load("../cache/final_data.rda")
 knitr::opts_chunk$set(eval = FALSE, warning = FALSE)
@@ -518,7 +521,7 @@ LDA(
 
 Training took 2 hours on the full dataset. We extract the word-topic probabilities, and the document-topic probabilities produced by the model.
 
-```{r}
+```{r Extract wtp and dtp}
 
 # Word-topic probabilities
 posts.lda %>% tidy("beta") -> posts.wtp
@@ -969,6 +972,137 @@ We can see here how 2016 progressed in terms of "hot topics" in each week:
   * Oct - **Foreign Policy** was a hot topic, with President Duterte pivoting to align more closely with China, and raising concerns about the viability of the claim in the South China Sea,
   * Nov - the **Marcos Burial** was top news for 4 straight weeks
   * Dec - we round out the rather tumultuous year with many articles about **Relationships, Work and Family**, **Science News**; also, the annual Christmas rush has brought articles related to **Transportation**.
+
+It seems that news articles are roughly evenly distributed across the topics. However, when you look at the reactions (likes, and other reactions) trend, you can see how there might be a false impression of bias in terms of the media's coverage.
+
+```{r Trend to reactions, eval = TRUE}
+
+posts_classification.dt %>% 
+  inner_join(
+    posts.dt %>% 
+      select(document = post_id, news_page = page_name, 
+             attachment_title, post_timestamp_utc),
+    by = "document"
+  ) %>% 
+  inner_join(topics_mapping.dt, by = "topic") %>% 
+  filter(
+    !topic_name %in% c("Filipino News", "Filipino Showbiz", 
+                       "Filipino Sports", "Breaking News")
+  ) %>%
+  inner_join(
+    reactions.dt %>% 
+      group_by(document = object_id) %>%
+      summarise(reactions = sum(count)) %>%
+      ungroup(),
+    by = "document"
+  ) %>%
+  group_by(topic_name, 
+           week = floor_date(post_timestamp_utc + hours(8), "week")) %>% 
+  summarise(
+    num_articles  = sum(allocation),
+    num_reactions = sum(reactions * allocation)
+  ) %>%
+  mutate(peak = week[num_articles == max(num_articles)]) %>%
+  ungroup() %>%
+  arrange(peak, week) %>%
+  mutate(topic_name = factor(topic_name, levels = rev(unique(topic_name))),
+         id = as.character(row_number()),
+         articles_height = num_articles/max(num_articles) * 9,
+         reactions_height = num_reactions/max(num_reactions) * 9) ->
+  posts_time_trend.dt
+
+bind_rows(
+  posts_time_trend.dt %>% 
+    transmute(id, time = 0,  ht = articles_height , op = 0),
+  posts_time_trend.dt %>% 
+    transmute(id, time = 10, ht = reactions_height, op = 1),
+  posts_time_trend.dt %>% 
+    transmute(id, time = 20, ht = articles_height , op = 0),
+) %>%
+  mutate(ease = "cubic-in-out") %>%
+  tween_elements("time", "id", "ease") %>%
+  inner_join(posts_time_trend.dt %>% select(topic_name, week, id), 
+             by = c(".group" = "id")) ->
+  posts_time_trend.adt
+
+posts_time_trend.adt %>%
+  group_by(.frame) %>%
+  summarise(
+    opacity    = mean(op),
+    range_week = max(week) - min(week),
+    min_week   = min(week),
+    num_topics = n_distinct(topic_name)
+  ) %>% 
+  ungroup() -> 
+  posts_time_trend_labels.adt
+
+```
+
+```{r Trend to reactions plot, eval = TRUE}
+
+posts_time_trend.adt %>%
+  ggplot(aes(x = week, y = topic_name, height = ht, 
+             fill = topic_name, frame = .frame)) +
+  geom_ridgeline(color = NA, alpha = 0.5) +
+  geom_text(
+    data = posts_time_trend_labels.adt,
+    aes(x = min_week + 0.25 * range_week, 
+        y = num_topics + 3.5, 
+        alpha = 1 - opacity, 
+        frame = .frame),
+    label = "What news outlets publish", color = "forestgreen",
+    family = "Roboto", fontface = "bold", size = 9,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = posts_time_trend_labels.adt,
+    aes(x = min_week + 0.75 * range_week, 
+        y = num_topics + 3.5, 
+        alpha = opacity, 
+        frame = .frame),
+    label = "What we react to", color = "firebrick",
+    family = "Roboto", fontface = "bold", size = 9,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = posts_time_trend_labels.adt,
+    aes(x = min_week + 0.55 * range_week, 
+        y = num_topics + 3.5, 
+        frame = .frame),
+    label = "VS",
+    family = "Roboto", fontface = "bold", size = 7,
+    inherit.aes = FALSE
+  ) +
+  scale_x_datetime(expand = c(0, 0)) +
+  theme(
+    legend.position = "none",
+    panel.border    = element_blank(),
+    axis.title      = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    plot.caption      = element_text(size = 9)
+  ) + 
+  labs(
+    caption = "
+DATA SOURCE: Facebook Graph API
+CHART NOTE: Topics were derived through Latent Dirichlet Allocation (LDA) with 40 topics for Facebook news articles in 2016 for the Philippines
+CHART BY: TROY JAMES PALANCA | TJPALANCA.COM
+    "
+  ) ->
+  posts_time_trend.agg
+
+gganimate(
+  p = posts_time_trend.agg,
+  filename = "../figs/09-reactions-vs-articles.gif",
+  title_frame = FALSE,
+  interval = 1/10,
+  ani.width = 900,
+  ani.height = 600
+)
+
+```
+
+![Articles to Reactions](../figs/09-reactions-vs-articles.gif)
 
 ### Topic Distribution by News Page
 

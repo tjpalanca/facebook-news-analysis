@@ -8,7 +8,7 @@ OUT2 = $(OUT_DIR)/02-fb-topic-modeling.html
 KNIT = Rscript -e "require(rmarkdown); render('$<', output_dir = '$(OUT_DIR)')"
 
 # Project 
-all: $(OUT1)
+all: $(OUT1) $(OUT2)
 clean: 
 	rm -rf ./out/*
 	rm -rf ./figs/*
