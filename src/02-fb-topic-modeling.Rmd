@@ -977,17 +977,23 @@ It seems that news articles are roughly evenly distributed across the topics. Ho
 
 ```{r Trend to reactions, eval = TRUE}
 
+# Prepare dataset for joy plot
 posts_classification.dt %>% 
   inner_join(
     posts.dt %>% 
-      select(document = post_id, news_page = page_name, 
-             attachment_title, post_timestamp_utc),
+      select(
+        document = post_id, 
+        news_page = page_name, 
+        attachment_title, 
+        post_timestamp_utc
+      ),
     by = "document"
   ) %>% 
   inner_join(topics_mapping.dt, by = "topic") %>% 
   filter(
-    !topic_name %in% c("Filipino News", "Filipino Showbiz", 
-                       "Filipino Sports", "Breaking News")
+    !topic_name %in% 
+      c("Filipino News", "Filipino Showbiz", 
+        "Filipino Sports", "Breaking News")
   ) %>%
   inner_join(
     reactions.dt %>% 
@@ -996,8 +1002,11 @@ posts_classification.dt %>%
       ungroup(),
     by = "document"
   ) %>%
-  group_by(topic_name, 
-           week = floor_date(post_timestamp_utc + hours(8), "week")) %>% 
+  group_by(
+    topic_name, 
+    # 8 hour time difference (Manila)
+    week = floor_date(post_timestamp_utc + hours(8), "week")
+  ) %>% 
   summarise(
     num_articles  = sum(allocation),
     num_reactions = sum(reactions * allocation)
@@ -1005,26 +1014,39 @@ posts_classification.dt %>%
   mutate(peak = week[num_articles == max(num_articles)]) %>%
   ungroup() %>%
   arrange(peak, week) %>%
-  mutate(topic_name = factor(topic_name, levels = rev(unique(topic_name))),
-         id = as.character(row_number()),
-         articles_height = num_articles/max(num_articles) * 9,
-         reactions_height = num_reactions/max(num_reactions) * 9) ->
+  mutate(
+    topic_name = factor(topic_name, levels = rev(unique(topic_name))),
+    # ID needed for linking back information after tweening frames
+    id = as.character(row_number()),
+    # Maximum height for ridgeline is 9
+    articles_height = num_articles/max(num_articles) * 9,
+    reactions_height = num_reactions/max(num_reactions) * 9
+  ) ->
   posts_time_trend.dt
 
+# Prepare animated dataset
 bind_rows(
+  # Articles
   posts_time_trend.dt %>% 
     transmute(id, time = 0,  ht = articles_height , op = 0),
+  # Reactions
   posts_time_trend.dt %>% 
     transmute(id, time = 10, ht = reactions_height, op = 1),
+  # Return to articles
   posts_time_trend.dt %>% 
     transmute(id, time = 20, ht = articles_height , op = 0),
 ) %>%
+  # Add cubic easing
   mutate(ease = "cubic-in-out") %>%
   tween_elements("time", "id", "ease") %>%
-  inner_join(posts_time_trend.dt %>% select(topic_name, week, id), 
-             by = c(".group" = "id")) ->
+  # Add back the topic name and week
+  inner_join(
+    posts_time_trend.dt %>% select(topic_name, week, id), 
+    by = c(".group" = "id")
+  ) ->
   posts_time_trend.adt
 
+# Create labels above the chart (what news outlets post vs what we react to)
 posts_time_trend.adt %>%
   group_by(.frame) %>%
   summarise(
@@ -1040,6 +1062,7 @@ posts_time_trend.adt %>%
 
 ```{r Trend to reactions plot, eval = TRUE}
 
+# Create animated pot
 posts_time_trend.adt %>%
   ggplot(aes(x = week, y = topic_name, height = ht, 
              fill = topic_name, frame = .frame)) +
