@@ -30,5 +30,9 @@ r_packages:
   - rvest
   - DT
   - rmarkdown
+  - ggjoy
+  - tweenr
+r_github_packages:
+  - dgrtwo/gganimate
 os:
   - osx
