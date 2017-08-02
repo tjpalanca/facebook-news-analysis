@@ -1,6 +1,6 @@
 # Facebook News Analysis
 
-[![Travis](https://img.shields.io/travis/tjpalanca/facebook-news-analysis.svg)]() [![GitHub issues](https://img.shields.io/github/issues/tjpalanca/facebook-news-analysis.svg)]() [![GitHub forks](https://img.shields.io/github/forks/tjpalanca/facebook-news-analysis.svg?style=social&label=Fork)]() [![GitHub stars](https://img.shields.io/github/stars/tjpalanca/facebook-news-analysis.svg?style=social&label=Star)]()
+[![GitHub issues](https://img.shields.io/github/issues/tjpalanca/facebook-news-analysis.svg)]() [![GitHub forks](https://img.shields.io/github/forks/tjpalanca/facebook-news-analysis.svg?style=social&label=Fork)]() [![GitHub stars](https://img.shields.io/github/stars/tjpalanca/facebook-news-analysis.svg?style=social&label=Star)]()
 
 ## Motivation
 
