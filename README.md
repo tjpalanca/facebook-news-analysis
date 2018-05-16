@@ -12,7 +12,7 @@ Apart from what we can gather via investigative journalism, how much do we reall
 
 ### 01 - Facebook Page Extraction
 
-* [Analysis Notebook](http://www.tjpalanca.com/static/20170207-fb-scraping.html)
+* [Analysis Notebook](http://www.tjpalanca.com/docs/20170207-fb-scraping.html)
 
 We use the Facebook Graph API to extract all relevant information for 2016 in key news pages, as identified by the number of likes. We extract posts, comments, reactions, comment replies and reactions and then place them in a structured format in the SQLite Database.
 
@@ -21,7 +21,7 @@ We use the Facebook Graph API to extract all relevant information for 2016 in ke
 ![Facebook News Landscape](https://github.com/tjpalanca/facebook-news-analysis/blob/master/figs/01-news-landscape-map.png?raw=true)
 
 * [Blog Post](http://www.tjpalanca.com/2017/03/facebook-news-topic-modeling.html)
-* [Analysis Notebook](http://www.tjpalanca.com/static/20170308-fb-topic-modeling.html)
+* [Analysis Notebook](http://www.tjpalanca.com/docs/20170308-fb-topic-modeling.html)
 
 We use Latent Dirichlet Allocation on news article unstructured text in order to uncover latent "topics" in the corpus. We then explore the overall distribution, time trends, and also the concentration of news pages on a particular topic to explore the assertion that media is "biased."
 
